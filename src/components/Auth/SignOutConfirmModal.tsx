@@ -5,12 +5,18 @@ import { useAuthStore } from '../../store/authStore';
 import { useAppStore } from '../../store/appStore';
 
 export const SignOutConfirmModal: React.FC = () => {
-  const { logout } = useAuthStore();
+  const { signOut } = useAuthStore();
   const { toggleSignOutConfirm } = useAppStore();
 
-  const handleConfirmSignOut = () => {
-    logout();
-    toggleSignOutConfirm();
+  const handleConfirmSignOut = async () => {
+    try {
+      await signOut();
+      toggleSignOutConfirm();
+    } catch (error) {
+      console.error('Sign out error:', error);
+      // Still close the modal even if sign out fails
+      toggleSignOutConfirm();
+    }
   };
 
   return (

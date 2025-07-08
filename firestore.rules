@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+
+    
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+    
+    function isCommunityAdmin(communityId) {
+      return exists(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)).data.role == 'community_admin';
+    }
+    
+    function isCommunityModerator(communityId) {
+      return exists(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)).data.role in ['community_admin', 'community_moderator'];
+    }
+    
+    function isCommunityMember(communityId) {
+      return exists(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid));
+    }
+    
+    // User profiles
+    match /users/{uid} {
+      allow read: if isAuthenticated() && isOwner(uid);
+      allow write: if isAuthenticated() && isOwner(uid);
+      allow create: if isAuthenticated() && isOwner(uid);
+      allow delete: if isAuthenticated() && isOwner(uid);
+    }
+    
+    // Communities
+    match /communities/{communityId} {
+      // Community metadata - readable by members, writable by admins
+      allow read: if isAuthenticated() && isCommunityMember(communityId);
+      allow write: if isAuthenticated() && isCommunityAdmin(communityId);
+      allow create: if isAuthenticated(); // Any user can create communities
+      allow delete: if isAuthenticated() && isCommunityAdmin(communityId);
+      
+      // Community roles subcollection
+      match /roles/{uid} {
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow write: if isAuthenticated() && isCommunityAdmin(communityId);
+        allow create: if isAuthenticated() && isCommunityAdmin(communityId);
+        allow delete: if isAuthenticated() && isCommunityAdmin(communityId);
+      }
+      
+      // Community messages
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow create: if isAuthenticated() && isCommunityMember(communityId);
+        allow update: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId));
+        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId));
+      }
+      
+      // Community resources
+      match /resources/{resourceId} {
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow create: if isAuthenticated() && isCommunityMember(communityId);
+        allow update: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityAdmin(communityId));
+        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityAdmin(communityId));
+      }
+      
+      // Community events
+      match /events/{eventId} {
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow create: if isAuthenticated() && isCommunityMember(communityId);
+        allow update: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId));
+        allow delete: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId));
+      }
+      
+      // Community announcements
+      match /announcements/{announcementId} {
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow create: if isAuthenticated() && isCommunityAdmin(communityId);
+        allow update: if isAuthenticated() && isCommunityAdmin(communityId);
+        allow delete: if isAuthenticated() && isCommunityAdmin(communityId);
+      }
+    }
+
+    // Join requests - for community approval workflow
+    match /joinRequests/{requestId} {
+      // Users can create join requests for themselves
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+
+      // Users can read their own join requests
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+
+      // Community admins can read all join requests for their communities
+      allow read: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
+
+      // Community admins can update join requests (approve/reject)
+      allow update: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
+
+      // Community admins can delete join requests
+      allow delete: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
+    }
+
+    // Community members collection
+    match /members/{memberId} {
+      // Members can read their own membership
+      allow read: if isAuthenticated() && request.auth.uid == resource.data.uid;
+
+      // Community members can read other members in their communities
+      allow read: if isAuthenticated() && isCommunityMember(resource.data.communityId);
+
+      // Community admins can manage memberships
+      allow write: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
+
+      // Users can create their own membership when joining
+      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+    }
+
+    // Rate limiting for sensitive operations
+    match /{document=**} {
+      allow write: if request.time > resource.data.lastModified + duration.value(1, 's');
+    }
+  }
+}

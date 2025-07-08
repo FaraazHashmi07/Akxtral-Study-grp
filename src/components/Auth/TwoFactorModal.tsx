@@ -6,7 +6,7 @@ import { useAuthStore } from '../../store/authStore';
 export const TwoFactorModal: React.FC = () => {
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState(false);
-  const { setUser, setShowTwoFactor } = useAuthStore();
+  const { user, setUser, setShowTwoFactor } = useAuthStore();
 
   const handleCodeChange = (index: number, value: string) => {
     if (value.length <= 1) {
@@ -25,23 +25,18 @@ export const TwoFactorModal: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
+
     // Simulate 2FA verification
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const mockUser = {
-      id: '1',
-      name: 'Alex Johnson',
-      email: 'admin@studygroup.com',
-      avatar: 'https://images.pexels.com/photos/2379004/pexels-photo-2379004.jpeg?auto=compress&cs=tinysrgb&w=150&h=150&dpr=2',
-      role: 'admin' as const,
-      isOnline: true,
-      lastSeen: new Date(),
-      badges: ['Admin', 'Founder']
-    };
-    
-    setUser(mockUser);
+
+    // 2FA verification successful - close modal
+    setShowTwoFactor(false);
     setIsLoading(false);
+  };
+
+  const handleSkip = () => {
+    // Allow users to skip 2FA setup
+    setShowTwoFactor(false);
   };
 
   return (
@@ -56,10 +51,10 @@ export const TwoFactorModal: React.FC = () => {
             <Shield className="w-8 h-8 text-blue-600 dark:text-blue-400" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            Two-Factor Authentication
+            Two-Factor Authentication (Optional)
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Enter the 6-digit code from your authenticator app
+            Enter the 6-digit code from your authenticator app, or skip to continue without 2FA
           </p>
         </div>
 
@@ -96,14 +91,23 @@ export const TwoFactorModal: React.FC = () => {
             )}
           </motion.button>
 
-          <button
-            type="button"
-            onClick={() => setShowTwoFactor(false)}
-            className="w-full flex items-center justify-center space-x-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to login</span>
-          </button>
+          <div className="flex space-x-3">
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="flex-1 py-3 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 font-medium"
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTwoFactor(false)}
+              className="flex-1 flex items-center justify-center space-x-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to login</span>
+            </button>
+          </div>
         </form>
       </motion.div>
     </div>

@@ -16,7 +16,7 @@ import { useAppStore } from '../../store/appStore';
 import { SignOutConfirmModal } from '../Auth/SignOutConfirmModal';
 
 export const Navbar: React.FC = () => {
-  const { user, logout } = useAuthStore();
+  const { user, signOut } = useAuthStore();
   const { 
     isDarkMode, 
     toggleDarkMode, 
@@ -111,20 +111,18 @@ export const Navbar: React.FC = () => {
                 className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               >
                 <img
-                  src={user?.avatar}
-                  alt={user?.name}
+                  src={user?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.displayName || 'User')}&background=6366f1&color=fff`}
+                  alt={user?.displayName}
                   className="w-8 h-8 rounded-full object-cover"
                 />
                 <div className="hidden md:block text-left">
                   <div className="text-sm font-medium text-gray-900 dark:text-white">
-                    {user?.name}
+                    {user?.displayName}
                   </div>
                   <div className="flex items-center space-x-1">
-                    <span className={`inline-block w-2 h-2 rounded-full ${
-                      user?.role === 'admin' ? 'bg-purple-500' : 'bg-blue-500'
-                    }`} />
+                    <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
                     <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                      {user?.role}
+                      User
                     </span>
                   </div>
                 </div>

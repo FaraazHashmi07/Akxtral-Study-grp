@@ -1,21 +1,44 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Eye, EyeOff, Mail, Lock, Chrome } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, Chrome, AlertCircle, ArrowLeft, Users } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
-export const LoginForm: React.FC = () => {
+interface LoginFormProps {
+  onBackToLanding?: () => void;
+}
+
+export const LoginForm: React.FC<LoginFormProps> = ({ onBackToLanding }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
-  const [role, setRole] = useState<'admin' | 'member'>('member');
-  
-  const { login, isLoading } = useAuthStore();
+
+
+  const { signIn, signUp, signInWithGoogleProvider, loading, error } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await login(email, password);
+
+    try {
+      if (isSignUp) {
+        await signUp(email, password, displayName);
+      } else {
+        await signIn(email, password);
+      }
+    } catch (error) {
+      // Error is handled by the store
+      console.error('Authentication error:', error);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithGoogleProvider();
+    } catch (error) {
+      console.error('Google sign in error:', error);
+    }
   };
 
   return (
@@ -26,13 +49,26 @@ export const LoginForm: React.FC = () => {
         className="w-full max-w-md"
       >
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
+          {/* Back Button */}
+          {onBackToLanding && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={onBackToLanding}
+              className="flex items-center space-x-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors mb-6"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span>Back to home</span>
+            </motion.button>
+          )}
+
           {/* Logo */}
           <div className="text-center mb-8">
             <motion.div
               whileHover={{ scale: 1.05 }}
-              className="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              className="w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-4"
             >
-              <span className="text-white font-bold text-xl">SG</span>
+              <Users className="w-8 h-8 text-white" />
             </motion.div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
               {isSignUp ? 'Join StudyGroup' : 'Welcome back'}
@@ -42,8 +78,20 @@ export const LoginForm: React.FC = () => {
             </p>
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-center space-x-3"
+            >
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              <span className="text-red-700 dark:text-red-400 text-sm">{error}</span>
+            </motion.div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Role Selector (Sign Up Only) */}
+            {/* Display Name (Sign Up Only) */}
             {isSignUp && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
@@ -51,16 +99,16 @@ export const LoginForm: React.FC = () => {
                 className="space-y-2"
               >
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Role
+                  Display Name
                 </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as 'admin' | 'member')}
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Enter your display name"
                   className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white transition-colors"
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
+                  required
+                />
               </motion.div>
             )}
 
@@ -135,13 +183,13 @@ export const LoginForm: React.FC = () => {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               type="submit"
-              disabled={isLoading}
+              disabled={loading}
               className="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-lg font-medium hover:from-blue-600 hover:to-purple-700 focus:ring-4 focus:ring-blue-200 dark:focus:ring-blue-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? (
+              {loading ? (
                 <div className="flex items-center justify-center space-x-2">
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Signing in...</span>
+                  <span>{isSignUp ? 'Creating Account...' : 'Signing in...'}</span>
                 </div>
               ) : (
                 isSignUp ? 'Create Account' : 'Sign In'
@@ -165,10 +213,14 @@ export const LoginForm: React.FC = () => {
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 type="button"
-                className="w-full flex items-center justify-center space-x-2 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                onClick={handleGoogleSignIn}
+                disabled={loading}
+                className="w-full flex items-center justify-center space-x-2 py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Chrome className="w-5 h-5 text-gray-500" />
-                <span className="text-gray-700 dark:text-gray-300">Google</span>
+                <span className="text-gray-700 dark:text-gray-300">
+                  {loading ? 'Connecting...' : 'Continue with Google'}
+                </span>
               </motion.button>
             </div>
 

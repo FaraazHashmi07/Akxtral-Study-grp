@@ -1,112 +1,176 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Command, ArrowRight, Hash, Users, Calendar, FileText } from 'lucide-react';
-import { useAppStore } from '../../store/appStore';
+import { motion } from 'framer-motion';
+import { Search, ArrowRight, Hash, Users, Calendar, FileText, Plus, Settings } from 'lucide-react';
+import { useUIStore } from '../../store/uiStore';
+import { useCommunityStore } from '../../store/communityStore';
 
-interface Command {
+interface CommandItem {
   id: string;
   title: string;
-  subtitle?: string;
-  icon: React.ComponentType<any>;
+  description: string;
+  icon: React.ReactNode;
   action: () => void;
-  category: string;
+  category: 'navigation' | 'actions' | 'search';
 }
 
-const mockCommands: Command[] = [
-  {
-    id: '1',
-    title: 'Go to Dashboard',
-    subtitle: 'Navigate to main dashboard',
-    icon: Hash,
-    action: () => console.log('Navigate to dashboard'),
-    category: 'Navigation'
-  },
-  {
-    id: '2',
-    title: 'Open React Study Group',
-    subtitle: '24 members • 3 unread',
-    icon: Users,
-    action: () => console.log('Open React group'),
-    category: 'Groups'
-  },
-  {
-    id: '3',
-    title: 'View Calendar',
-    subtitle: 'Upcoming events and meetings',
-    icon: Calendar,
-    action: () => console.log('Open calendar'),
-    category: 'Navigation'
-  },
-  {
-    id: '4',
-    title: 'Search Resources',
-    subtitle: 'Find study materials and documents',
-    icon: FileText,
-    action: () => console.log('Search resources'),
-    category: 'Resources'
-  }
-];
-
 export const CommandPalette: React.FC = () => {
-  const { showCommandPalette, toggleCommandPalette } = useAppStore();
+  const {
+    setCommandPaletteOpen,
+    setActiveSection,
+    openModal,
+    activeCommunityId
+  } = useUIStore();
+  const { joinedCommunities, setActiveCommunity } = useCommunityStore();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const filteredCommands = mockCommands.filter(command =>
+  const commands: CommandItem[] = [
+    // Navigation commands
+    {
+      id: 'dashboard',
+      title: 'Go to Dashboard',
+      description: 'View community overview and analytics',
+      icon: <Hash className="w-4 h-4" />,
+      action: () => {
+        setActiveSection('dashboard');
+        setCommandPaletteOpen(false);
+      },
+      category: 'navigation'
+    },
+    {
+      id: 'chat',
+      title: 'Go to Chat',
+      description: 'Join community discussions',
+      icon: <Hash className="w-4 h-4" />,
+      action: () => {
+        setActiveSection('chat');
+        setCommandPaletteOpen(false);
+      },
+      category: 'navigation'
+    },
+    {
+      id: 'resources',
+      title: 'Go to Resources',
+      description: 'Browse shared files and materials',
+      icon: <FileText className="w-4 h-4" />,
+      action: () => {
+        setActiveSection('resources');
+        setCommandPaletteOpen(false);
+      },
+      category: 'navigation'
+    },
+    {
+      id: 'calendar',
+      title: 'Go to Calendar',
+      description: 'View events and study sessions',
+      icon: <Calendar className="w-4 h-4" />,
+      action: () => {
+        setActiveSection('calendar');
+        setCommandPaletteOpen(false);
+      },
+      category: 'navigation'
+    },
+    // Action commands
+    {
+      id: 'create-community',
+      title: 'Create Community',
+      description: 'Start a new study community',
+      icon: <Plus className="w-4 h-4" />,
+      action: () => {
+        openModal('createCommunity');
+        setCommandPaletteOpen(false);
+      },
+      category: 'actions'
+    },
+    {
+      id: 'discover-communities',
+      title: 'Discover Communities',
+      description: 'Find and join study communities',
+      icon: <Search className="w-4 h-4" />,
+      action: () => {
+        openModal('discoverCommunities');
+        setCommandPaletteOpen(false);
+      },
+      category: 'actions'
+    },
+    {
+      id: 'user-settings',
+      title: 'User Settings',
+      description: 'Manage your account and preferences',
+      icon: <Settings className="w-4 h-4" />,
+      action: () => {
+        openModal('userSettings');
+        setCommandPaletteOpen(false);
+      },
+      category: 'actions'
+    },
+    // Community commands
+    ...joinedCommunities.map(community => ({
+      id: `community-${community.id}`,
+      title: `Go to ${community.name}`,
+      description: `Switch to ${community.name} community`,
+      icon: <Users className="w-4 h-4" />,
+      action: () => {
+        setActiveCommunity(community);
+        setCommandPaletteOpen(false);
+      },
+      category: 'navigation' as const
+    }))
+  ];
+
+  const filteredCommands = commands.filter(command =>
     command.title.toLowerCase().includes(query.toLowerCase()) ||
-    command.subtitle?.toLowerCase().includes(query.toLowerCase())
+    command.description.toLowerCase().includes(query.toLowerCase())
   );
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (showCommandPalette) {
-        if (e.key === 'Escape') {
-          toggleCommandPalette();
-        } else if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedIndex(prev => Math.min(prev + 1, filteredCommands.length - 1));
-        } else if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedIndex(prev => Math.max(prev - 1, 0));
-        } else if (e.key === 'Enter') {
-          e.preventDefault();
-          if (filteredCommands[selectedIndex]) {
-            filteredCommands[selectedIndex].action();
-            toggleCommandPalette();
-          }
-        }
-      } else if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        toggleCommandPalette();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCommandPalette, selectedIndex, filteredCommands, toggleCommandPalette]);
 
   useEffect(() => {
     setSelectedIndex(0);
   }, [query]);
 
-  if (!showCommandPalette) return null;
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedIndex(prev =>
+            prev < filteredCommands.length - 1 ? prev + 1 : 0
+          );
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedIndex(prev =>
+            prev > 0 ? prev - 1 : filteredCommands.length - 1
+          );
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (filteredCommands[selectedIndex]) {
+            filteredCommands[selectedIndex].action();
+          }
+          break;
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [filteredCommands, selectedIndex]);
+
+  const groupedCommands = filteredCommands.reduce((acc, command) => {
+    if (!acc[command.category]) {
+      acc[command.category] = [];
+    }
+    acc[command.category].push(command);
+    return acc;
+  }, {} as Record<string, CommandItem[]>);
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-start justify-center pt-20"
-        onClick={toggleCommandPalette}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: -20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: -20 }}
-          onClick={(e) => e.stopPropagation()}
-          className="w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden"
-        >
+    <motion.div
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      exit={{ scale: 0.95, opacity: 0 }}
+      className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 w-full max-w-2xl mx-4"
+      onClick={(e) => e.stopPropagation()}
+    >
           {/* Search Input */}
           <div className="flex items-center p-4 border-b border-gray-200 dark:border-gray-700">
             <Search className="w-5 h-5 text-gray-400 mr-3" />
@@ -124,82 +188,71 @@ export const CommandPalette: React.FC = () => {
             </div>
           </div>
 
-          {/* Results */}
-          <div className="max-h-96 overflow-y-auto">
-            {filteredCommands.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-                <Search className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>No results found for "{query}"</p>
+      {/* Commands */}
+      <div className="max-h-96 overflow-y-auto">
+        {Object.keys(groupedCommands).length > 0 ? (
+          <div className="p-2">
+            {Object.entries(groupedCommands).map(([category, commands]) => (
+              <div key={category} className="mb-4 last:mb-0">
+                <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  {category}
+                </div>
+                {commands.map((command, index) => {
+                  const globalIndex = filteredCommands.indexOf(command);
+                  return (
+                    <motion.button
+                      key={command.id}
+                      className={`w-full flex items-center p-3 rounded-lg text-left transition-colors ${
+                        globalIndex === selectedIndex
+                          ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                      onClick={command.action}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <div className="mr-3">{command.icon}</div>
+                      <div className="flex-1">
+                        <div className="font-medium">{command.title}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          {command.description}
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-gray-400" />
+                    </motion.button>
+                  );
+                })}
               </div>
-            ) : (
-              <div className="py-2">
-                {Object.entries(
-                  filteredCommands.reduce((acc, command) => {
-                    if (!acc[command.category]) acc[command.category] = [];
-                    acc[command.category].push(command);
-                    return acc;
-                  }, {} as Record<string, Command[]>)
-                ).map(([category, commands]) => (
-                  <div key={category}>
-                    <div className="px-4 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      {category}
-                    </div>
-                    {commands.map((command, index) => {
-                      const globalIndex = filteredCommands.indexOf(command);
-                      return (
-                        <motion.button
-                          key={command.id}
-                          whileHover={{ backgroundColor: 'rgba(59, 130, 246, 0.1)' }}
-                          onClick={() => {
-                            command.action();
-                            toggleCommandPalette();
-                          }}
-                          className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
-                            selectedIndex === globalIndex
-                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                              : 'text-gray-900 dark:text-white hover:bg-gray-50 dark:hover:bg-gray-700'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <command.icon className="w-5 h-5" />
-                            <div>
-                              <p className="font-medium">{command.title}</p>
-                              {command.subtitle && (
-                                <p className="text-sm text-gray-500 dark:text-gray-400">
-                                  {command.subtitle}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <ArrowRight className="w-4 h-4 opacity-50" />
-                        </motion.button>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            )}
+            ))}
           </div>
+        ) : (
+          <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+            <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
+            <p>No commands found</p>
+          </div>
+        )}
+      </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-1">
-                <kbd className="px-1.5 py-0.5 bg-white dark:bg-gray-600 rounded border">↑↓</kbd>
-                <span>Navigate</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <kbd className="px-1.5 py-0.5 bg-white dark:bg-gray-600 rounded border">↵</kbd>
-                <span>Select</span>
-              </div>
-            </div>
-            <div className="flex items-center space-x-1">
-              <kbd className="px-1.5 py-0.5 bg-white dark:bg-gray-600 rounded border">esc</kbd>
-              <span>Close</span>
-            </div>
+      {/* Footer */}
+      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-600">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <span className="flex items-center space-x-1">
+              <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">↑</kbd>
+              <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">↓</kbd>
+              <span>to navigate</span>
+            </span>
+            <span className="flex items-center space-x-1">
+              <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">↵</kbd>
+              <span>to select</span>
+            </span>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+          <span className="flex items-center space-x-1">
+            <kbd className="px-1 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">esc</kbd>
+            <span>to close</span>
+          </span>
+        </div>
+      </div>
+    </motion.div>
   );
 };

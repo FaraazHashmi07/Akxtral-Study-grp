@@ -23,6 +23,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { useAppStore } from '../../store/appStore';
 import { useAuthStore } from '../../store/authStore';
+import { canAccessDatabaseManagement } from '../../lib/authorization';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4'];
 
@@ -57,7 +58,7 @@ export const DatabaseManagement: React.FC = () => {
   ];
 
   // Check admin access
-  if (user?.role !== 'admin') {
+  if (!canAccessDatabaseManagement(user)) {
     return (
       <div className="p-6 text-center">
         <Shield className="w-16 h-16 text-red-500 mx-auto mb-4" />
@@ -154,7 +155,7 @@ export const DatabaseManagement: React.FC = () => {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
             <option value="admin">Admins</option>
-            <option value="member">Members</option>
+
           </select>
           <motion.button
             whileHover={{ scale: 1.05 }}
