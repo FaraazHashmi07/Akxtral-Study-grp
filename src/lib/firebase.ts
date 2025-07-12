@@ -31,22 +31,41 @@ try {
   console.log('📍 Project ID:', firebaseConfig.projectId);
   console.log('📍 Auth Domain:', firebaseConfig.authDomain);
 
-} catch (error) {
+} catch (error: any) {
   console.error('❌ Firebase initialization failed:', error);
+
+  // Check if it's an API key error
+  const isApiKeyError = error.message?.includes('api-key-not-valid') ||
+                       error.message?.includes('API key not valid') ||
+                       error.code?.includes('api-key');
+
+  if (isApiKeyError) {
+    console.error('🔑 Invalid Firebase API key detected');
+    console.error('📋 To fix this issue:');
+    console.error('   1. Go to https://console.firebase.google.com');
+    console.error('   2. Select your grp-study project');
+    console.error('   3. Go to Project Settings → General → Your apps');
+    console.error('   4. Copy the real configuration values');
+    console.error('   5. Set environment variables in Netlify:');
+    console.error('      VITE_FIREBASE_API_KEY=your_real_api_key');
+    console.error('      VITE_FIREBASE_APP_ID=your_real_app_id');
+    console.error('      VITE_FIREBASE_MESSAGING_SENDER_ID=your_real_sender_id');
+  }
+
   console.warn('🔄 Falling back to demo mode with mock services');
 
   // Create mock services that won't break the app
   auth = {
     currentUser: null,
     onAuthStateChanged: (callback: any) => {
-      console.warn('Demo mode: Authentication disabled');
+      console.warn('🚫 Authentication disabled - Firebase not configured');
       setTimeout(() => callback(null), 100);
       return () => {};
     },
-    signInWithEmailAndPassword: () => Promise.reject(new Error('Demo mode: Please configure Firebase')),
-    createUserWithEmailAndPassword: () => Promise.reject(new Error('Demo mode: Please configure Firebase')),
+    signInWithEmailAndPassword: () => Promise.reject(new Error('Authentication unavailable: Please configure Firebase environment variables')),
+    createUserWithEmailAndPassword: () => Promise.reject(new Error('Authentication unavailable: Please configure Firebase environment variables')),
     signOut: () => Promise.resolve(),
-    signInWithPopup: () => Promise.reject(new Error('Demo mode: Please configure Firebase'))
+    signInWithPopup: () => Promise.reject(new Error('Authentication unavailable: Please configure Firebase environment variables'))
   };
 
   db = {

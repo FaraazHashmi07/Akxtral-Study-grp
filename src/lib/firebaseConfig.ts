@@ -12,15 +12,20 @@ interface FirebaseConfigType {
 }
 
 // Production Firebase configuration for grp-study project
-// These are the actual values for the grp-study Firebase project
+// NOTE: These are placeholder values. For production use, you need to:
+// 1. Go to Firebase Console: https://console.firebase.google.com
+// 2. Select your 'grp-study' project
+// 3. Go to Project Settings → General → Your apps
+// 4. Copy the real configuration values
+// 5. Set them as environment variables in Netlify or use them here
 const PRODUCTION_CONFIG: FirebaseConfigType = {
-  apiKey: "AIzaSyBvOkBjcEJCiid7_rEHiMp-Hr_9qYOTRlA",
+  apiKey: "PLACEHOLDER_API_KEY", // Replace with real API key
   authDomain: "grp-study.firebaseapp.com",
   projectId: "grp-study",
   storageBucket: "grp-study.appspot.com",
-  messagingSenderId: "123456789012",
-  appId: "1:123456789012:web:abcdef123456789",
-  measurementId: "G-XXXXXXXXXX"
+  messagingSenderId: "PLACEHOLDER_SENDER_ID", // Replace with real sender ID
+  appId: "PLACEHOLDER_APP_ID", // Replace with real app ID
+  measurementId: "G-PLACEHOLDER" // Replace with real measurement ID
 };
 
 // Development/Demo configuration (safe for public use)
@@ -81,12 +86,38 @@ export function getFirebaseConfig(): FirebaseConfigType {
 export function validateFirebaseConfig(config: FirebaseConfigType): boolean {
   const required = ['apiKey', 'authDomain', 'projectId', 'storageBucket', 'appId'];
   const missing = required.filter(key => !config[key as keyof FirebaseConfigType]);
-  
+
   if (missing.length > 0) {
     console.error('❌ Invalid Firebase configuration. Missing:', missing);
     return false;
   }
-  
+
+  // Check for placeholder values
+  const placeholders = [
+    'PLACEHOLDER_API_KEY',
+    'PLACEHOLDER_SENDER_ID',
+    'PLACEHOLDER_APP_ID',
+    'demo-api-key',
+    'your_api_key_here'
+  ];
+
+  const hasPlaceholders = placeholders.some(placeholder =>
+    config.apiKey.includes(placeholder) ||
+    config.appId.includes(placeholder) ||
+    config.messagingSenderId.includes(placeholder)
+  );
+
+  if (hasPlaceholders) {
+    console.warn('⚠️ Firebase configuration contains placeholder values');
+    console.warn('🔧 To enable authentication, configure real Firebase values:');
+    console.warn('   1. Go to https://console.firebase.google.com');
+    console.warn('   2. Select your grp-study project');
+    console.warn('   3. Go to Project Settings → General → Your apps');
+    console.warn('   4. Copy the configuration values');
+    console.warn('   5. Set as environment variables in Netlify or update firebaseConfig.ts');
+    return false;
+  }
+
   console.log('✅ Firebase configuration validated successfully');
   return true;
 }

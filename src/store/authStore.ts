@@ -161,12 +161,31 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       await signInWithGoogle();
       // User state will be updated by onAuthStateChanged
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Google sign in error:', error);
+
+      let userFriendlyMessage = 'Google sign in failed';
+
+      // Handle specific Firebase errors
+      if (error.code === 'auth/api-key-not-valid' || error.message?.includes('api-key-not-valid')) {
+        userFriendlyMessage = 'Authentication service is not properly configured. Please contact support.';
+      } else if (error.message?.includes('Authentication unavailable')) {
+        userFriendlyMessage = 'Authentication is currently unavailable. Please try again later.';
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        userFriendlyMessage = 'Sign in was cancelled. Please try again.';
+      } else if (error.code === 'auth/popup-blocked') {
+        userFriendlyMessage = 'Pop-up was blocked by your browser. Please allow pop-ups and try again.';
+      } else if (error.code === 'auth/network-request-failed') {
+        userFriendlyMessage = 'Network error. Please check your connection and try again.';
+      } else if (error.message?.includes('Demo mode')) {
+        userFriendlyMessage = 'Authentication is in demo mode. Full functionality requires Firebase configuration.';
+      }
+
       set({
-        error: error instanceof Error ? error.message : 'Google sign in failed',
+        error: userFriendlyMessage,
         loading: false
       });
-      throw error;
+      throw new Error(userFriendlyMessage);
     }
   },
 
