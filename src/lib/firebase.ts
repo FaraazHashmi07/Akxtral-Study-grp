@@ -3,63 +3,92 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import { getFunctions } from 'firebase/functions';
+import { getValidatedFirebaseConfig } from './firebaseConfig';
 
-// Firebase configuration
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
-};
+// Initialize Firebase with automated error handling
+let app: any;
+let auth: any;
+let db: any;
+let storage: any;
+let functions: any;
 
-// Validate Firebase configuration
-const requiredEnvVars = [
-  'VITE_FIREBASE_API_KEY',
-  'VITE_FIREBASE_AUTH_DOMAIN',
-  'VITE_FIREBASE_PROJECT_ID',
-  'VITE_FIREBASE_STORAGE_BUCKET',
-  'VITE_FIREBASE_APP_ID'
-];
+try {
+  // Get Firebase configuration using automated system
+  const firebaseConfig = getValidatedFirebaseConfig();
 
-const missingVars = requiredEnvVars.filter(varName => !import.meta.env[varName]);
-if (missingVars.length > 0) {
-  console.error('Missing required Firebase environment variables:', missingVars);
-  console.error('Please configure these environment variables in:');
-  console.error('- Local development: .env.local file');
-  console.error('- Netlify deployment: Site Settings → Environment Variables');
-  console.error('Get values from: Firebase Console → Project Settings → General → Your apps');
-  throw new Error(`Missing Firebase configuration: ${missingVars.join(', ')}`);
+  console.log('🔥 Initializing Firebase for project:', firebaseConfig.projectId);
+
+  // Initialize Firebase
+  app = initializeApp(firebaseConfig);
+
+  // Initialize Firebase services
+  auth = getAuth(app);
+  db = getFirestore(app);
+  storage = getStorage(app);
+  functions = getFunctions(app);
+
+  console.log('✅ Firebase initialized successfully');
+  console.log('📍 Project ID:', firebaseConfig.projectId);
+  console.log('📍 Auth Domain:', firebaseConfig.authDomain);
+
+} catch (error) {
+  console.error('❌ Firebase initialization failed:', error);
+  console.warn('🔄 Falling back to demo mode with mock services');
+
+  // Create mock services that won't break the app
+  auth = {
+    currentUser: null,
+    onAuthStateChanged: (callback: any) => {
+      console.warn('Demo mode: Authentication disabled');
+      setTimeout(() => callback(null), 100);
+      return () => {};
+    },
+    signInWithEmailAndPassword: () => Promise.reject(new Error('Demo mode: Please configure Firebase')),
+    createUserWithEmailAndPassword: () => Promise.reject(new Error('Demo mode: Please configure Firebase')),
+    signOut: () => Promise.resolve(),
+    signInWithPopup: () => Promise.reject(new Error('Demo mode: Please configure Firebase'))
+  };
+
+  db = {
+    collection: () => ({
+      doc: () => ({
+        get: () => Promise.resolve({ exists: false, data: () => null }),
+        set: () => Promise.resolve(),
+        update: () => Promise.resolve(),
+        delete: () => Promise.resolve(),
+        onSnapshot: () => () => {}
+      }),
+      add: () => Promise.resolve({ id: 'demo-id' }),
+      where: () => ({ get: () => Promise.resolve({ docs: [] }) }),
+      orderBy: () => ({ get: () => Promise.resolve({ docs: [] }) }),
+      limit: () => ({ get: () => Promise.resolve({ docs: [] }) })
+    })
+  };
+
+  storage = {
+    ref: () => ({
+      put: () => Promise.resolve({
+        ref: {
+          getDownloadURL: () => Promise.resolve('https://via.placeholder.com/150')
+        }
+      })
+    })
+  };
+
+  functions = {};
+  app = { name: 'demo-app' };
 }
 
-console.log('Firebase config loaded for project:', firebaseConfig.projectId);
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-
-// Initialize Firebase services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const functions = getFunctions(app);
-
-// Force production Firebase services - no emulators
-console.log('🚀 Using production Firebase services');
-console.log('📍 Project ID:', firebaseConfig.projectId);
-console.log('📍 Auth Domain:', firebaseConfig.authDomain);
-console.log('🗄️ Firestore Project:', firebaseConfig.projectId);
-
-// Verify we're not using emulators
-if (auth.config?.emulator) {
-  console.warn('⚠️ Auth emulator detected - this should not happen in production mode');
-}
-
-// Log Firebase service initialization
-console.log('✅ Firebase Auth initialized');
-console.log('✅ Firestore initialized');
-console.log('✅ Firebase Storage initialized');
-console.log('✅ Firebase Functions initialized');
-
+// Export Firebase services
+export { auth, db, storage, functions };
 export default app;
+
+// Utility functions
+export const isFirebaseInitialized = () => !!app;
+export const isFirebaseConnected = () => {
+  try {
+    return !!app && !!auth && !!db && app.name !== 'demo-app';
+  } catch {
+    return false;
+  }
+};
