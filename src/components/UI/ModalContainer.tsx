@@ -12,6 +12,7 @@ import { MemberListModal } from '../Modals/MemberListModal';
 import { UserSettingsModal } from '../Modals/UserSettingsModal';
 import { JoinRequestsModal } from '../Modals/JoinRequestsModal';
 import { DeleteCommunityModal } from '../Modals/DeleteCommunityModal';
+import { UploadResourceModal } from '../Modals/UploadResourceModal';
 
 export const ModalContainer: React.FC = () => {
   const { activeModal, modals, closeModal } = useUIStore();
@@ -43,6 +44,10 @@ export const ModalContainer: React.FC = () => {
         return <DeleteCommunityModal
           communityId={modalData.communityId}
           communityName={modalData.communityName}
+        />;
+      case 'uploadResource':
+        return <UploadResourceModal
+          communityId={modalData.communityId}
         />;
       default:
         return null;

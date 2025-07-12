@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Home, Settings } from 'lucide-react';
+import { Plus, Search, Home, Settings, Crown } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
+import { isCommunityAdmin } from '../../lib/authorization';
 import { Community } from '../../types';
 
 export const CommunityRail: React.FC = () => {
@@ -55,7 +56,18 @@ export const CommunityRail: React.FC = () => {
   };
 
   const isAdmin = (community: Community) => {
-    return getUserRole(community) === 'community_admin';
+    // Primary check using authorization function
+    const adminStatus = isCommunityAdmin(user, community.id);
+
+    // Fallback check using direct role comparison
+    const fallbackAdmin = user?.communityRoles?.[community.id]?.role === 'community_admin';
+
+    // Check if user created the community
+    const isCreator = user?.uid === community.createdBy;
+
+    const finalAdminStatus = adminStatus || fallbackAdmin || isCreator;
+
+    return finalAdminStatus;
   };
 
   return (
@@ -149,13 +161,22 @@ export const CommunityRail: React.FC = () => {
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
-            className="fixed left-20 bg-gray-800 text-white px-3 py-2 rounded-lg text-sm font-medium shadow-lg z-50 pointer-events-none"
+            className="fixed left-20 bg-gray-800 dark:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm font-medium shadow-lg z-50 pointer-events-none border border-gray-600"
             style={{
               top: '50%',
               transform: 'translateY(-50%)'
             }}
           >
-            {hoveredCommunity}
+            <div className="flex items-center space-x-2">
+              <span>{hoveredCommunity}</span>
+              {joinedCommunities.find(c => c.name === hoveredCommunity) &&
+               isAdmin(joinedCommunities.find(c => c.name === hoveredCommunity)!) && (
+                <div className="flex items-center space-x-1 text-yellow-400">
+                  <Crown size={12} />
+                  <span className="text-xs">Admin</span>
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -211,14 +232,29 @@ const CommunityAvatar: React.FC<CommunityAvatarProps> = ({
           height: isActive ? 40 : 0,
           opacity: isActive ? 1 : 0
         }}
-        className="absolute -left-1 top-1/2 transform -translate-y-1/2 w-1 bg-white rounded-r-full"
+        className={`absolute -left-1 top-1/2 transform -translate-y-1/2 w-1 rounded-r-full ${
+          isAdmin ? 'bg-yellow-400' : 'bg-white'
+        }`}
       />
 
       {/* Admin crown indicator */}
       {isAdmin && (
-        <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full flex items-center justify-center z-10">
-          <span className="text-xs">👑</span>
-        </div>
+        <motion.div
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
+          className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center z-10 shadow-lg border-2 border-gray-900"
+        >
+          <Crown size={10} className="text-gray-900" />
+        </motion.div>
+      )}
+
+      {/* Admin glow effect */}
+      {isAdmin && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 rounded-2xl bg-gradient-to-br from-yellow-400/20 to-yellow-600/20 dark:from-yellow-400/30 dark:to-yellow-600/30 blur-sm -z-10"
+        />
       )}
 
       <motion.button
@@ -231,17 +267,30 @@ const CommunityAvatar: React.FC<CommunityAvatarProps> = ({
           isActive
             ? 'rounded-xl shadow-lg'
             : 'hover:rounded-xl'
+        } ${
+          isAdmin
+            ? 'ring-2 ring-yellow-400/50 dark:ring-yellow-400/60 shadow-lg shadow-yellow-400/25 dark:shadow-yellow-400/40'
+            : ''
         } ${getCommunityColor(community.category)}`}
-        title={community.name}
+        title={`${community.name}${isAdmin ? ' (Admin)' : ''}`}
       >
+        {/* Admin background overlay */}
+        {isAdmin && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 to-transparent dark:from-yellow-400/15"
+          />
+        )}
+
         {community.iconUrl ? (
           <img
             src={community.iconUrl}
             alt={community.name}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover relative z-10"
           />
         ) : (
-          <span>{getInitials(community.name)}</span>
+          <span className="relative z-10">{getInitials(community.name)}</span>
         )}
 
         {/* Unread indicator */}

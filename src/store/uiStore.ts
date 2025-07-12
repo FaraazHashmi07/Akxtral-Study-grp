@@ -102,7 +102,7 @@ export const useUIStore = create<UIStore>()(
       // Modal management
       openModal: (modalId, data) => {
         const { modals } = get();
-        set({ 
+        set({
           activeModal: modalId,
           modals: { ...modals, [modalId]: data || {} }
         });

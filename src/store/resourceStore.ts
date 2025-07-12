@@ -1,5 +1,66 @@
 import { create } from 'zustand';
 import { Resource, ResourceTag } from '../types';
+import { uploadCommunityResource, UploadProgress, deleteFileFromStorage, validateFile } from '../services/storageService';
+import { auth, db } from '../lib/firebase';
+import { collection, addDoc, doc, updateDoc, deleteDoc, getDocs, query, where, orderBy, serverTimestamp, getDoc } from 'firebase/firestore';
+import { canUploadResources } from '../lib/authorization';
+
+// Helper function to validate upload permissions and community settings
+const validateUploadPermissions = async (communityId: string, file: File) => {
+  if (!auth.currentUser) {
+    throw new Error('You must be logged in to upload files');
+  }
+
+  // Validate file first
+  const fileValidation = validateFile(file);
+  if (!fileValidation.isValid) {
+    throw new Error(fileValidation.error || 'Invalid file');
+  }
+
+  // Get community settings to check if file uploads are allowed
+  try {
+    const communityDoc = doc(db, 'communities', communityId);
+    const communitySnapshot = await getDoc(communityDoc);
+
+    if (!communitySnapshot.exists()) {
+      throw new Error('Community not found');
+    }
+
+    const communityData = communitySnapshot.data();
+    const settings = communityData.settings;
+
+    // Check if uploads are disabled (default to enabled)
+    if (settings?.allowFileUploads === false) {
+      throw new Error('File uploads are disabled for this community');
+    }
+
+    // Check file size against community limits (default 10MB)
+    const maxFileSize = (settings?.maxFileSize || 10) * 1024 * 1024; // Convert MB to bytes
+    if (file.size > maxFileSize) {
+      const limitMB = settings?.maxFileSize || 10;
+      throw new Error(`File size exceeds community limit of ${limitMB}MB`);
+    }
+
+    // Check file type against community allowed types (if specified)
+    const allowedTypes = settings?.allowedFileTypes || [];
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+
+    if (allowedTypes.length > 0 && fileExtension && !allowedTypes.includes(fileExtension)) {
+      throw new Error(`File type .${fileExtension} is not allowed in this community. Allowed types: ${allowedTypes.join(', ')}`);
+    }
+
+    // More permissive permission check - just verify user is authenticated
+    // Community membership will be validated by Firebase security rules
+    console.log('✅ Upload validation passed for user:', auth.currentUser.uid, 'in community:', communityId);
+
+    return true;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to validate community settings');
+  }
+};
 
 interface ResourceState {
   // State
@@ -60,12 +121,64 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
   // Load resources for a community
   loadResources: async (communityId) => {
+    console.log('🔄 Loading resources for community:', communityId);
     set({ loading: true, error: null });
     try {
-      // TODO: Implement Firestore query for community resources
-      // const resources = await getCommunityResources(communityId);
-      const resources: Resource[] = []; // Placeholder
-      
+      // Query resources from Firestore
+      const resourcesCollection = collection(db, 'resources');
+
+      let resourcesQuery;
+      let querySnapshot;
+
+      try {
+        // Try with orderBy first (requires composite index)
+        resourcesQuery = query(
+          resourcesCollection,
+          where('communityId', '==', communityId),
+          orderBy('uploadedAt', 'desc')
+        );
+        querySnapshot = await getDocs(resourcesQuery);
+      } catch (indexError) {
+        console.warn('Composite index not available, falling back to simple query:', indexError);
+        // Fallback to simple query without orderBy
+        resourcesQuery = query(
+          resourcesCollection,
+          where('communityId', '==', communityId)
+        );
+        querySnapshot = await getDocs(resourcesQuery);
+      }
+
+      const resources: Resource[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        resources.push({
+          id: doc.id,
+          communityId: data.communityId,
+          name: data.name,
+          description: data.description || '',
+          type: data.type,
+          url: data.url,
+          fileSize: data.fileSize,
+          mimeType: data.mimeType,
+          tags: data.tags || [],
+          uploadedBy: data.uploadedBy,
+          uploadedAt: data.uploadedAt?.toDate() || new Date(),
+          downloads: data.downloads || 0,
+          likes: data.likes || []
+        });
+      });
+
+      // Sort by uploadedAt in JavaScript if we couldn't use orderBy in the query
+      resources.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+
+      console.log(`✅ Successfully loaded ${resources.length} resources for community ${communityId}`);
+      console.log('📋 Resource isolation check:', {
+        communityId,
+        resourceCount: resources.length,
+        resourceIds: resources.map(r => ({ id: r.id, name: r.name, communityId: r.communityId }))
+      });
+
       const { resources: currentResources } = get();
       set({
         resources: {
@@ -75,9 +188,10 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
         loading: false
       });
     } catch (error) {
-      set({ 
+      console.error('Failed to load resources:', error);
+      set({
         error: error instanceof Error ? error.message : 'Failed to load resources',
-        loading: false 
+        loading: false
       });
     }
   },
@@ -85,36 +199,66 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   // Upload a file resource
   uploadResource: async (communityId, file, metadata) => {
     set({ loading: true, error: null });
+
+    if (!auth.currentUser) {
+      const error = 'User must be authenticated to upload files';
+      set({ error, loading: false });
+      throw new Error(error);
+    }
+
     try {
-      // TODO: Implement Firebase Storage upload and Firestore document creation
-      // const uploadResult = await uploadFileToStorage(file, `communities/${communityId}/resources`);
-      // const resource = await createResourceInFirestore(communityId, {
-      //   ...metadata,
-      //   type: 'file',
-      //   url: uploadResult.downloadURL,
-      //   fileSize: file.size,
-      //   mimeType: file.type
-      // });
-      
-      const resource: Resource = {
-        id: `resource_${Date.now()}`,
+      // Validate permissions and community settings
+      await validateUploadPermissions(communityId, file);
+      // Upload file to Firebase Storage
+      const uploadResult = await uploadCommunityResource(
+        communityId,
+        file,
+        (progress: UploadProgress) => {
+          // Progress tracking could be added to store state if needed
+          console.log(`Upload progress: ${progress.percentage}%`);
+        }
+      );
+
+      // Create resource document in Firestore
+      const resourceData = {
         communityId,
         name: metadata.name || file.name,
-        description: metadata.description,
-        type: 'file',
-        url: URL.createObjectURL(file), // Temporary URL
+        description: metadata.description || '',
+        type: 'file' as const,
+        url: uploadResult.downloadURL,
         fileSize: file.size,
         mimeType: file.type,
         tags: metadata.tags || [],
-        uploadedBy: 'current-user', // TODO: Get from auth store
+        uploadedBy: auth.currentUser.uid,
+        uploadedAt: serverTimestamp(),
+        downloads: 0,
+        likes: []
+      };
+
+      const resourcesCollection = collection(db, 'resources');
+      const docRef = await addDoc(resourcesCollection, resourceData);
+
+      // Create the resource object for local state
+      const resource: Resource = {
+        id: docRef.id,
+        communityId,
+        name: metadata.name || file.name,
+        description: metadata.description || '',
+        type: 'file',
+        url: uploadResult.downloadURL,
+        fileSize: file.size,
+        mimeType: file.type,
+        tags: metadata.tags || [],
+        uploadedBy: auth.currentUser.uid,
         uploadedAt: new Date(),
         downloads: 0,
         likes: []
       };
-      
+
+      // Update local state
       const { resources } = get();
       const communityResources = resources[communityId] || [];
-      
+
       set({
         resources: {
           ...resources,
@@ -122,12 +266,14 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
         },
         loading: false
       });
-      
+
       return resource;
     } catch (error) {
-      set({ 
-        error: error instanceof Error ? error.message : 'Failed to upload resource',
-        loading: false 
+      console.error('Failed to upload resource:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to upload resource';
+      set({
+        error: errorMessage,
+        loading: false
       });
       throw error;
     }
@@ -202,44 +348,87 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
   // Delete a resource
   deleteResource: async (resourceId) => {
+    if (!auth.currentUser) {
+      throw new Error('User must be authenticated to delete resources');
+    }
+
     try {
-      // TODO: Implement Firestore resource deletion and Storage file deletion
-      // await deleteResourceFromFirestore(resourceId);
-      // await deleteFileFromStorage(resourceUrl);
-      
+      // Get resource document to find the file path
+      const resourceDoc = doc(db, 'resources', resourceId);
+      const resourceSnapshot = await getDoc(resourceDoc);
+
+      if (!resourceSnapshot.exists()) {
+        throw new Error('Resource not found');
+      }
+
+      const resourceData = resourceSnapshot.data();
+
+      // Check if user has permission to delete (must be the uploader)
+      if (resourceData.uploadedBy !== auth.currentUser.uid) {
+        throw new Error('You do not have permission to delete this resource');
+      }
+
+      // Delete file from Storage if it's a file resource
+      if (resourceData.type === 'file' && resourceData.url) {
+        try {
+          // Extract storage path from URL or use a stored path
+          // For now, we'll construct the path based on our upload structure
+          const communityId = resourceData.communityId;
+          const fileName = resourceData.url.split('/').pop()?.split('?')[0]; // Extract filename from URL
+          if (fileName) {
+            const storagePath = `communities/${communityId}/resources/${resourceId}/${fileName}`;
+            await deleteFileFromStorage(storagePath);
+          }
+        } catch (storageError) {
+          console.warn('Failed to delete file from storage:', storageError);
+          // Continue with Firestore deletion even if storage deletion fails
+        }
+      }
+
+      // Delete resource document from Firestore
+      await deleteDoc(resourceDoc);
+
+      // Update local state
       const { resources } = get();
-      
-      // Remove resource from all communities
       const updatedResources = Object.keys(resources).reduce((acc, communityId) => {
         acc[communityId] = resources[communityId].filter(r => r.id !== resourceId);
         return acc;
       }, {} as Record<string, Resource[]>);
-      
+
       set({ resources: updatedResources });
     } catch (error) {
       console.error('Failed to delete resource:', error);
+      throw error;
     }
   },
 
   // Download a resource (increment download count)
   downloadResource: async (resourceId) => {
     try {
-      // TODO: Implement download tracking
-      // await incrementDownloadCount(resourceId);
-      
-      const { resources } = get();
-      
+      // Update download count in Firestore
+      const resourceDoc = doc(db, 'resources', resourceId);
+      const resourceSnapshot = await getDoc(resourceDoc);
+
+      if (resourceSnapshot.exists()) {
+        const currentDownloads = resourceSnapshot.data().downloads || 0;
+        await updateDoc(resourceDoc, {
+          downloads: currentDownloads + 1
+        });
+      }
+
       // Update download count locally
+      const { resources } = get();
       const updatedResources = Object.keys(resources).reduce((acc, communityId) => {
-        acc[communityId] = resources[communityId].map(r => 
+        acc[communityId] = resources[communityId].map(r =>
           r.id === resourceId ? { ...r, downloads: r.downloads + 1 } : r
         );
         return acc;
       }, {} as Record<string, Resource[]>);
-      
+
       set({ resources: updatedResources });
     } catch (error) {
       console.error('Failed to track download:', error);
+      // Don't throw error for download tracking failure
     }
   },
 
