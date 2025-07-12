@@ -125,10 +125,26 @@ export function validateFirebaseConfig(config: FirebaseConfigType): boolean {
 // Get configuration with validation
 export function getValidatedFirebaseConfig(): FirebaseConfigType {
   const config = getFirebaseConfig();
-  
+
   if (!validateFirebaseConfig(config)) {
+    console.warn('🚫 Firebase configuration validation failed - using demo mode');
     throw new Error('Invalid Firebase configuration');
   }
-  
+
   return config;
+}
+
+// Safe version that doesn't throw errors
+export function getSafeFirebaseConfig(): { config: FirebaseConfigType; isValid: boolean } {
+  try {
+    const config = getFirebaseConfig();
+    const isValid = validateFirebaseConfig(config);
+    return { config, isValid };
+  } catch (error) {
+    console.error('Error getting Firebase config:', error);
+    return {
+      config: DEMO_CONFIG,
+      isValid: false
+    };
+  }
 }
