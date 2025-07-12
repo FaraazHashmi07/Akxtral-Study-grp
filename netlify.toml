@@ -1,0 +1,20 @@
+[build]
+  publish = "dist"
+  command = "npm run build:netlify"
+
+[build.environment]
+  NETLIFY = "true"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[context.production]
+  environment = { NETLIFY = "true" }
+
+[context.deploy-preview]
+  environment = { NETLIFY = "true" }
+
+[context.branch-deploy]
+  environment = { NETLIFY = "true" }
