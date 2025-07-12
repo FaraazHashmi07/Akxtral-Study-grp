@@ -27,6 +27,10 @@ const requiredEnvVars = [
 const missingVars = requiredEnvVars.filter(varName => !import.meta.env[varName]);
 if (missingVars.length > 0) {
   console.error('Missing required Firebase environment variables:', missingVars);
+  console.error('Please configure these environment variables in:');
+  console.error('- Local development: .env.local file');
+  console.error('- Netlify deployment: Site Settings → Environment Variables');
+  console.error('Get values from: Firebase Console → Project Settings → General → Your apps');
   throw new Error(`Missing Firebase configuration: ${missingVars.join(', ')}`);
 }
 
