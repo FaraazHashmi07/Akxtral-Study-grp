@@ -19,13 +19,14 @@ interface FirebaseConfigType {
 // 4. Copy the real configuration values
 // 5. Set them as environment variables in Netlify or use them here
 const PRODUCTION_CONFIG: FirebaseConfigType = {
-  apiKey: "PLACEHOLDER_API_KEY", // Replace with real API key
+  // Real Firebase configuration for grp-study project
+  apiKey: "AIzaSyCmA5CqGPQjbeCGQ6o6uxdk1yMi-Q0ymog",
   authDomain: "grp-study.firebaseapp.com",
   projectId: "grp-study",
-  storageBucket: "grp-study.appspot.com",
-  messagingSenderId: "PLACEHOLDER_SENDER_ID", // Replace with real sender ID
-  appId: "PLACEHOLDER_APP_ID", // Replace with real app ID
-  measurementId: "G-PLACEHOLDER" // Replace with real measurement ID
+  storageBucket: "grp-study.firebasestorage.app",
+  messagingSenderId: "723082992805",
+  appId: "1:723082992805:web:64bcee5c2d0f1122b4414c",
+  measurementId: "G-G2HHEP2Z3L"
 };
 
 // Development/Demo configuration (safe for public use)

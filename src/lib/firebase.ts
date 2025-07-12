@@ -9,14 +9,14 @@ import { getSafeFirebaseConfig } from './firebaseConfig';
 const createMockAuth = () => ({
   currentUser: null,
   onAuthStateChanged: (callback: any) => {
-    console.warn('🚫 Authentication disabled - Firebase not configured');
+    console.warn('🚫 Authentication disabled - running in demo mode');
     setTimeout(() => callback(null), 100);
     return () => {};
   },
-  signInWithEmailAndPassword: () => Promise.reject(new Error('Authentication unavailable: Please configure Firebase environment variables')),
-  createUserWithEmailAndPassword: () => Promise.reject(new Error('Authentication unavailable: Please configure Firebase environment variables')),
+  signInWithEmailAndPassword: () => Promise.reject(new Error('Demo Mode: Authentication is disabled. To enable authentication, configure real Firebase environment variables.')),
+  createUserWithEmailAndPassword: () => Promise.reject(new Error('Demo Mode: Authentication is disabled. To enable authentication, configure real Firebase environment variables.')),
   signOut: () => Promise.resolve(),
-  signInWithPopup: () => Promise.reject(new Error('Authentication unavailable: Please configure Firebase environment variables'))
+  signInWithPopup: () => Promise.reject(new Error('Demo Mode: Authentication is disabled. To enable authentication, configure real Firebase environment variables.'))
 });
 
 const createMockFirestore = () => {
@@ -89,6 +89,7 @@ if (configValid) {
 // If Firebase initialization failed or config is invalid, use demo mode
 if (!app || !db) {
   console.warn('🔄 Falling back to demo mode');
+  console.warn('📋 Authentication will be disabled to prevent API key errors');
 
   try {
     // Try to initialize with demo config for Firestore compatibility
@@ -102,12 +103,16 @@ if (!app || !db) {
     };
 
     app = initializeApp(demoConfig, 'demo-app');
-    auth = getAuth(app);
+
+    // Initialize Firestore and Storage (these work with demo config)
     db = getFirestore(app);
     storage = getStorage(app);
     functions = getFunctions(app);
 
-    console.log('✅ Demo Firebase services initialized');
+    // Use mock auth to prevent API key errors
+    auth = createMockAuth();
+
+    console.log('✅ Demo Firebase services initialized (auth disabled)');
 
   } catch (demoError) {
     console.warn('⚠️ Complete fallback to mocks');
