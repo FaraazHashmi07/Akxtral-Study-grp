@@ -5,13 +5,15 @@ service firebase.storage {
     function isAuthenticated() {
       return request.auth != null;
     }
-    
+
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.super_admin == true;
+    }
+
     function isOwner(uid) {
       return request.auth.uid == uid;
     }
-    
 
-    
     function isValidImageFile() {
       return request.resource.contentType.matches('image/.*') &&
              request.resource.size < 2 * 1024 * 1024; // 2MB limit
@@ -42,14 +44,19 @@ service firebase.storage {
       allow write: if isAuthenticated() &&
                       (isValidImageFile() || isValidDocumentFile());
       allow delete: if isAuthenticated() &&
-                       isOwner(resource.metadata.uploadedBy);
+                       (isOwner(resource.metadata.uploadedBy) || isSuperAdmin());
     }
-    
+
     // Community images (banners, logos, etc.)
     match /communities/{communityId}/images/{fileName} {
       allow read: if true; // Community images are public
       allow write: if isAuthenticated() && isValidImageFile();
-      allow delete: if isAuthenticated(); // Any authenticated user can delete community images
+      allow delete: if isAuthenticated() || isSuperAdmin(); // Any authenticated user can delete community images
+    }
+
+    // Super Admin access to all resources (for deletion)
+    match /resources/{communityId}/{allPaths=**} {
+      allow read, delete: if isSuperAdmin();
     }
 
     // Temporary uploads (for processing)

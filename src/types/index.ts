@@ -36,6 +36,53 @@ export interface AuthState {
   error: string | null;
 }
 
+// ===== SUPER ADMIN SYSTEM =====
+export interface SuperAdminState {
+  isSuperAdmin: boolean;
+  superAdminToken: any | null;
+}
+
+export interface SuperAdminAnalytics {
+  totalUsers: number;
+  totalCommunities: number;
+  communitiesCreatedThisWeek: number;
+  flaggedCommunities: number;
+  storageUsage: number; // in MB
+  topActiveCommunities: {
+    id: string;
+    name: string;
+    memberCount: number;
+    messageCount: number;
+    resourceCount: number;
+  }[];
+}
+
+export interface SuperAdminCommunityView {
+  id: string;
+  name: string;
+  description: string;
+  creatorEmail: string;
+  creatorUid: string;
+  createdAt: Date;
+  memberCount: number;
+  resourceCount: number;
+  messageCount: number;
+  eventCount: number;
+  flagged: boolean;
+  lastActivity: Date;
+}
+
+export interface SuperAdminUserView {
+  uid: string;
+  email: string;
+  displayName: string;
+  communitiesCreated: number;
+  communitiesJoined: number;
+  registrationDate: Date;
+  lastLoginAt: Date;
+  flagCount: number;
+}
+
 // ===== COMMUNITY SYSTEM =====
 export interface Community {
   id: string;
@@ -227,6 +274,17 @@ export interface UIState {
   activeCommunityId: string | null;
   activeChannelId: string | null;
   activeSection: 'dashboard' | 'announcements' | 'chat' | 'resources' | 'calendar' | 'meets';
+}
+
+// ===== SUPER ADMIN UI STATE =====
+export interface SuperAdminUIState {
+  activeAdminSection: 'dashboard' | 'communities' | 'users';
+  communitySearchQuery: string;
+  userSearchQuery: string;
+  selectedCommunityForView: string | null;
+  selectedUserForView: string | null;
+  showDeleteConfirmation: boolean;
+  communityToDelete: string | null;
 }
 
 export interface Toast {

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Admin Setup</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .shield {
+            width: 60px;
+            height: 60px;
+            background: #dc2626;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            color: white;
+            font-size: 24px;
+        }
+        input, button {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #dc2626;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        button:hover {
+            background: #b91c1c;
+        }
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+        .success {
+            background: #d1fae5;
+            border: 1px solid #10b981;
+            color: #065f46;
+        }
+        .error {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+        }
+        .info {
+            background: #e0f2fe;
+            border: 1px solid #0284c7;
+            color: #0c4a6e;
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 6px;
+        }
+        code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="shield">🛡️</div>
+            <h1>Super Admin Setup</h1>
+            <p>One-time setup for Study Group Platform Super Admin</p>
+        </div>
+
+        <div class="info">
+            <strong>Instructions:</strong><br>
+            1. Make sure Firebase Functions are deployed<br>
+            2. Enter the setup key: <code>SETUP_SUPER_ADMIN_2024</code><br>
+            3. Click "Setup Super Admin" to configure the account
+        </div>
+
+        <form id="setupForm">
+            <input 
+                type="email" 
+                id="email" 
+                value="160422747039@mjcollege.ac.in" 
+                readonly 
+                placeholder="Super Admin Email"
+            >
+            <input 
+                type="password" 
+                id="setupKey" 
+                placeholder="Setup Key: SETUP_SUPER_ADMIN_2024"
+                required
+            >
+            <button type="submit" id="setupBtn">Setup Super Admin</button>
+        </form>
+
+        <div id="result" class="result"></div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+        import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-functions.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCmA5CqGPQjbeCGQ6o6uxdk1yMi-Q0ymog",
+            authDomain: "grp-study.firebaseapp.com",
+            projectId: "grp-study",
+            storageBucket: "grp-study.firebasestorage.app",
+            messagingSenderId: "723082992805",
+            appId: "1:723082992805:web:64bcee5c2d0f1122b4414c",
+            measurementId: "G-G2HHEP2Z3L"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const functions = getFunctions(app);
+
+        document.getElementById('setupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const setupKey = document.getElementById('setupKey').value;
+            const setupBtn = document.getElementById('setupBtn');
+            const result = document.getElementById('result');
+
+            setupBtn.disabled = true;
+            setupBtn.textContent = 'Setting up...';
+            result.style.display = 'none';
+
+            try {
+                const setupSuperAdmin = httpsCallable(functions, 'setupSuperAdmin');
+                const response = await setupSuperAdmin({ email, setupKey });
+
+                result.className = 'result success';
+                result.innerHTML = `
+                    <strong>✅ Success!</strong><br>
+                    ${response.data.message}<br>
+                    <small>User ID: ${response.data.uid}</small><br><br>
+                    <strong>Next Steps:</strong><br>
+                    1. The Super Admin account is now configured<br>
+                    2. Login with email: ${email}<br>
+                    3. Use temporary password: <code>TempPassword123!</code><br>
+                    4. Change password immediately after first login<br>
+                    5. You can now access the admin panel at /admin
+                `;
+                result.style.display = 'block';
+                document.getElementById('setupKey').value = '';
+
+            } catch (error) {
+                console.error('Setup failed:', error);
+                
+                result.className = 'result error';
+                result.innerHTML = `
+                    <strong>❌ Setup Failed</strong><br>
+                    ${error.message || 'Unknown error occurred'}<br><br>
+                    <strong>Common Issues:</strong><br>
+                    • Invalid setup key<br>
+                    • Firebase Functions not deployed<br>
+                    • Network connectivity issues<br>
+                    • Firebase project configuration
+                `;
+                result.style.display = 'block';
+            } finally {
+                setupBtn.disabled = false;
+                setupBtn.textContent = 'Setup Super Admin';
+            }
+        });
+    </script>
+</body>
+</html>

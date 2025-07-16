@@ -9,10 +9,10 @@ import {
   getUserProfile,
   createUserProfile
 } from '../lib/auth';
-import { User, AuthState } from '../types';
+import { User, AuthState, SuperAdminState } from '../types';
 import { useNotificationStore } from './notificationStore';
 
-interface AuthStore extends AuthState {
+interface AuthStore extends AuthState, SuperAdminState {
   // Authentication methods
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
@@ -34,6 +34,10 @@ interface AuthStore extends AuthState {
 
   // Set loading state (for debugging)
   setLoading: (loading: boolean) => void;
+
+  // Super Admin methods
+  setSuperAdminState: (isSuperAdmin: boolean, token?: any) => void;
+  checkSuperAdminClaims: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -41,6 +45,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   loading: true,
   error: null,
   showTwoFactor: false,
+
+  // Super Admin state
+  isSuperAdmin: false,
+  superAdminToken: null,
 
   // Initialize authentication state listener
   initialize: () => {
@@ -64,6 +72,27 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
       if (firebaseUser) {
         console.log('✅ Firebase user authenticated:', firebaseUser.uid);
+
+        // Check for Super Admin custom claims
+        try {
+          const tokenResult = await firebaseUser.getIdTokenResult();
+          const isSuperAdmin = tokenResult.claims.super_admin === true;
+
+          if (isSuperAdmin) {
+            console.log('🔐 Super Admin detected:', firebaseUser.email);
+            set({
+              isSuperAdmin: true,
+              superAdminToken: tokenResult,
+              user: null, // Super Admin doesn't have a regular user profile
+              loading: false,
+              error: null
+            });
+            return;
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to check custom claims:', error);
+          // Continue with regular user flow
+        }
 
         // Create minimal user profile from Firebase Auth data (skip Firestore for now)
         const userProfile: User = {
@@ -109,7 +138,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
       } else {
         console.log('❌ No Firebase user - user signed out');
-        set({ user: null, loading: false, showTwoFactor: false, error: null });
+        set({
+          user: null,
+          loading: false,
+          showTwoFactor: false,
+          error: null,
+          isSuperAdmin: false,
+          superAdminToken: null
+        });
       }
     });
 
@@ -252,5 +288,30 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
   setLoading: (loading: boolean) => set({ loading }),
   setError: (error: string | null) => set({ error }),
-  setShowTwoFactor: (show: boolean) => set({ showTwoFactor: show })
+  setShowTwoFactor: (show: boolean) => set({ showTwoFactor: show }),
+
+  // Super Admin methods
+  setSuperAdminState: (isSuperAdmin: boolean, token?: any) => {
+    console.log('🔐 Setting Super Admin state:', isSuperAdmin);
+    set({ isSuperAdmin, superAdminToken: token || null });
+  },
+
+  checkSuperAdminClaims: async () => {
+    try {
+      const { auth } = await import('../lib/firebase');
+      const currentUser = auth.currentUser;
+
+      if (currentUser) {
+        const tokenResult = await currentUser.getIdTokenResult();
+        const isSuperAdmin = tokenResult.claims.super_admin === true;
+
+        if (isSuperAdmin !== get().isSuperAdmin) {
+          console.log('🔄 Super Admin status changed:', isSuperAdmin);
+          set({ isSuperAdmin, superAdminToken: isSuperAdmin ? tokenResult : null });
+        }
+      }
+    } catch (error) {
+      console.error('❌ Failed to check Super Admin claims:', error);
+    }
+  }
 }));

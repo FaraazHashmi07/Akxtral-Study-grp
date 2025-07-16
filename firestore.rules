@@ -5,9 +5,11 @@ service cloud.firestore {
     function isAuthenticated() {
       return request.auth != null;
     }
-    
 
-    
+    function isSuperAdmin() {
+      return request.auth != null && request.auth.token.super_admin == true;
+    }
+
     function isOwner(uid) {
       return request.auth.uid == uid;
     }
@@ -28,58 +30,58 @@ service cloud.firestore {
     
     // User profiles
     match /users/{uid} {
-      allow read: if isAuthenticated() && isOwner(uid);
+      allow read: if isAuthenticated() && (isOwner(uid) || isSuperAdmin());
       allow write: if isAuthenticated() && isOwner(uid);
       allow create: if isAuthenticated() && isOwner(uid);
-      allow delete: if isAuthenticated() && isOwner(uid);
+      allow delete: if isAuthenticated() && (isOwner(uid) || isSuperAdmin());
     }
     
     // Communities
     match /communities/{communityId} {
       // Community metadata - readable by members, writable by admins
-      allow read: if isAuthenticated() && isCommunityMember(communityId);
+      allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
       allow write: if isAuthenticated() && isCommunityAdmin(communityId);
       allow create: if isAuthenticated(); // Any user can create communities
-      allow delete: if isAuthenticated() && isCommunityAdmin(communityId);
+      allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       
       // Community roles subcollection
       match /roles/{uid} {
-        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
         allow write: if isAuthenticated() && isCommunityAdmin(communityId);
         allow create: if isAuthenticated() && isCommunityAdmin(communityId);
-        allow delete: if isAuthenticated() && isCommunityAdmin(communityId);
+        allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       }
-      
+
       // Community messages
       match /messages/{messageId} {
-        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
         allow create: if isAuthenticated() && isCommunityMember(communityId);
         allow update: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId));
-        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId));
+        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId) || isSuperAdmin());
       }
-      
+
       // Community resources
       match /resources/{resourceId} {
-        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
         allow create: if isAuthenticated() && isCommunityMember(communityId);
         allow update: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityAdmin(communityId));
-        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityAdmin(communityId));
+        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityAdmin(communityId) || isSuperAdmin());
       }
-      
+
       // Community events
       match /events/{eventId} {
-        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
         allow create: if isAuthenticated() && isCommunityMember(communityId);
         allow update: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId));
-        allow delete: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId));
+        allow delete: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId) || isSuperAdmin());
       }
-      
+
       // Community announcements
       match /announcements/{announcementId} {
-        allow read: if isAuthenticated() && isCommunityMember(communityId);
+        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
         allow create: if isAuthenticated() && isCommunityAdmin(communityId);
         allow update: if isAuthenticated() && isCommunityAdmin(communityId);
-        allow delete: if isAuthenticated() && isCommunityAdmin(communityId);
+        allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       }
     }
 
@@ -89,16 +91,16 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
 
       // Users can read their own join requests
-      allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isSuperAdmin());
 
       // Community admins can read all join requests for their communities
-      allow read: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
+      allow read: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
 
       // Community admins can update join requests (approve/reject)
       allow update: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
 
       // Community admins can delete join requests
-      allow delete: if isAuthenticated() && isCommunityAdmin(resource.data.communityId);
+      allow delete: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
     }
 
     // Community members collection

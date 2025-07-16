@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuthStore } from './store/authStore';
 import { useUIStore } from './store/uiStore';
@@ -10,10 +11,14 @@ import { TwoFactorModal } from './components/Auth/TwoFactorModal';
 import { ResponsiveDiscordLayout } from './components/Layout/DiscordLayout';
 import { LandingPage } from './components/Landing/LandingPage';
 
+// Super Admin Components
+import { SuperAdminGuard } from './components/Admin/SuperAdminGuard';
+import { SuperAdminLayout } from './components/Admin/SuperAdminLayout';
+
 
 
 function App() {
-  const { user, loading, showTwoFactor, initialize } = useAuthStore();
+  const { user, loading, showTwoFactor, initialize, isSuperAdmin } = useAuthStore();
   const { theme } = useUIStore();
   const { loadJoinedCommunities } = useCommunityStore();
   const [showLogin, setShowLogin] = React.useState(false);
@@ -24,12 +29,12 @@ function App() {
     return () => unsubscribe && unsubscribe();
   }, [initialize]);
 
-  // Load user's communities when authenticated
+  // Load user's communities when authenticated (but not for Super Admin)
   useEffect(() => {
-    if (user) {
+    if (user && !isSuperAdmin) {
       loadJoinedCommunities();
     }
-  }, [user, loadJoinedCommunities]);
+  }, [user, isSuperAdmin, loadJoinedCommunities]);
 
   // Show loading spinner while checking authentication
   if (loading) {
@@ -46,31 +51,55 @@ function App() {
     );
   }
 
-  // Show landing page or login if not authenticated
-  if (!user) {
+  // Show landing page or login if not authenticated (and not Super Admin)
+  if (!user && !isSuperAdmin) {
     if (showLogin) {
       return (
-        <>
+        <Router>
           <LoginForm onBackToLanding={() => setShowLogin(false)} />
           {showTwoFactor && <TwoFactorModal />}
-        </>
+        </Router>
       );
     }
 
     return (
-      <>
+      <Router>
         <LandingPage onGetStarted={() => setShowLogin(true)} />
         {showTwoFactor && <TwoFactorModal />}
-      </>
+      </Router>
     );
   }
 
-  // Main authenticated app
+  // Super Admin authenticated - redirect to admin panel
+  if (isSuperAdmin) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="/admin/*" element={
+            <SuperAdminGuard>
+              <SuperAdminLayout />
+            </SuperAdminGuard>
+          } />
+          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+        </Routes>
+        {showTwoFactor && <TwoFactorModal />}
+      </Router>
+    );
+  }
+
+  // Regular user authenticated app
   return (
-    <>
-      <ResponsiveDiscordLayout />
+    <Router>
+      <Routes>
+        <Route path="/admin/*" element={
+          <SuperAdminGuard fallback={<Navigate to="/" replace />}>
+            <SuperAdminLayout />
+          </SuperAdminGuard>
+        } />
+        <Route path="*" element={<ResponsiveDiscordLayout />} />
+      </Routes>
       {showTwoFactor && <TwoFactorModal />}
-    </>
+    </Router>
   );
 }
 

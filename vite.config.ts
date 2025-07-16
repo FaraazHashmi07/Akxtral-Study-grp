@@ -4,10 +4,12 @@ import react from '@vitejs/plugin-react';
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
   // Determine base path based on environment
+  // For development: use root path '/'
   // For Netlify: use root path '/'
   // For GitHub Pages: use repository path '/Akxtral-Study-grp/'
+  const isDev = command === 'serve';
   const isNetlify = process.env.NETLIFY === 'true' || process.env.CONTEXT === 'production' || process.env.DEPLOY_PRIME_URL;
-  const base = isNetlify ? '/' : '/Akxtral-Study-grp/';
+  const base = isDev || isNetlify ? '/' : '/Akxtral-Study-grp/';
 
   return {
     plugins: [react()],
