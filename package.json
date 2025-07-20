@@ -1,7 +1,7 @@
 {
   "name": "study-group-collaboration-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "date-fns": "^2.30.0",
+    "emoji-picker-react": "^4.13.2",
     "firebase": "^11.10.0",
     "framer-motion": "^10.16.16",
     "lucide-react": "^0.344.0",
