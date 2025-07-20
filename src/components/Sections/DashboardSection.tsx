@@ -265,11 +265,17 @@ export const DashboardSection: React.FC = () => {
                 </div>
               </button>
               
-              <button className="w-full flex items-center space-x-3 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors">
+              <button
+                onClick={() => {
+                  console.log('👥 [DASHBOARD] View Members clicked');
+                  openModal('memberList', { communityId: activeCommunity.id });
+                }}
+                className="w-full flex items-center space-x-3 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
+              >
                 <Users size={20} className="text-orange-600 dark:text-orange-400" />
                 <div className="text-left">
                   <p className="font-medium text-gray-900 dark:text-white">
-                    Manage Members
+                    View Members
                   </p>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
                     View and manage community members
@@ -281,21 +287,21 @@ export const DashboardSection: React.FC = () => {
               {isAdmin && (
                 <button
                   onClick={() => {
-                    console.log('👥 [DASHBOARD] Manage Members clicked');
+                    console.log('👥 [DASHBOARD] Manage Join Requests clicked');
                     openModal('joinRequests', {
                       communityId: activeCommunity.id,
                       communityName: activeCommunity.name
                     });
                   }}
-                  className="w-full flex items-center space-x-3 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors"
+                  className="w-full flex items-center space-x-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors"
                 >
-                  <UserCheck size={20} className="text-orange-600 dark:text-orange-400" />
+                  <UserCheck size={20} className="text-green-600 dark:text-green-400" />
                   <div className="text-left">
                     <p className="font-medium text-gray-900 dark:text-white">
-                      Manage Members
+                      Join Requests
                     </p>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                      View and manage community join requests
+                      Review and approve community join requests
                     </p>
                   </div>
                 </button>

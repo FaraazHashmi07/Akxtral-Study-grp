@@ -25,7 +25,9 @@ const notificationsRef = collection(db, 'notifications');
 // Community CRUD operations
 export const createCommunity = async (
   communityData: Partial<Community>,
-  creatorId: string
+  creatorId: string,
+  creatorEmail?: string,
+  creatorDisplayName?: string
 ): Promise<Community> => {
   console.log('🚀 Creating community with data:', { communityData, creatorId });
 
@@ -81,7 +83,11 @@ export const createCommunity = async (
       communityId: docRef.id,
       role: 'community_admin',
       joinedAt: serverTimestamp(),
-      lastActive: serverTimestamp()
+      lastActive: serverTimestamp(),
+      // Include creator profile data
+      email: creatorEmail || '',
+      displayName: creatorDisplayName || '',
+      photoURL: '' // We can add this later if needed
     };
 
     console.log('👤 Creating membership document:', { membershipId, membershipDoc });
@@ -463,13 +469,17 @@ export const joinCommunity = async (
       }
     } else {
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
-      // Join directly
+      // Join directly - include user profile data for easier access
       await addDoc(membersRef, {
         uid: userId,
         communityId,
         role: 'community_member',
         joinedAt: serverTimestamp(),
-        lastActive: serverTimestamp()
+        lastActive: serverTimestamp(),
+        // Store user profile data for easier access
+        email: userEmail || '',
+        displayName: userDisplayName || '',
+        photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
       });
 
       // Update member count
@@ -519,7 +529,7 @@ export const getCommunityMembers = async (communityId: string): Promise<Communit
   try {
     const memberQuery = query(membersRef, where('communityId', '==', communityId));
     const memberSnapshot = await getDocs(memberQuery);
-    
+
     const members: CommunityMember[] = [];
     memberSnapshot.forEach((doc) => {
       const data = doc.data();
@@ -537,6 +547,119 @@ export const getCommunityMembers = async (communityId: string): Promise<Communit
   } catch (error) {
     console.error('Error fetching community members:', error);
     throw new Error('Failed to fetch community members');
+  }
+};
+
+// Get community members with full user profiles
+export const getCommunityMembersWithProfiles = async (communityId: string): Promise<Array<CommunityMember & { displayName: string; email: string; photoURL?: string }>> => {
+  try {
+    console.log('👥 [SERVICE] Loading members with profiles for community:', communityId);
+
+    // Get basic member data
+    const members = await getCommunityMembers(communityId);
+
+    if (members.length === 0) {
+      return [];
+    }
+
+    // Fetch user profiles for each member
+    const membersWithProfiles = await Promise.all(
+      members.map(async (member) => {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', member.uid));
+
+          let email = 'Unknown';
+          let displayName = 'Unknown User';
+          let photoURL = '';
+
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            email = userData.email || 'Unknown';
+            displayName = userData.displayName || userData.name || email.split('@')[0] || 'Unknown User';
+            photoURL = userData.photoURL || '';
+          }
+
+          return {
+            ...member,
+            email,
+            displayName,
+            photoURL
+          };
+        } catch (error) {
+          console.error(`❌ [SERVICE] Error fetching profile for ${member.uid}:`, error);
+          return {
+            ...member,
+            email: 'Error loading',
+            displayName: 'Error loading user',
+            photoURL: ''
+          };
+        }
+      })
+    );
+
+    console.log('✅ [SERVICE] Successfully loaded member profiles:', membersWithProfiles.length);
+    return membersWithProfiles;
+  } catch (error) {
+    console.error('❌ [SERVICE] Failed to load community members with profiles:', error);
+    throw new Error('Failed to fetch community members with profiles');
+  }
+};
+
+// Remove a member from community (admin only)
+export const removeCommunityMember = async (
+  communityId: string,
+  memberUid: string,
+  adminUid: string
+): Promise<void> => {
+  try {
+    console.log('🗑️ [SERVICE] Removing member:', memberUid, 'from community:', communityId, 'by admin:', adminUid);
+
+    // Verify admin permissions
+    const adminMemberQuery = query(
+      membersRef,
+      where('uid', '==', adminUid),
+      where('communityId', '==', communityId),
+      where('role', '==', 'community_admin')
+    );
+    const adminSnapshot = await getDocs(adminMemberQuery);
+
+    if (adminSnapshot.empty) {
+      throw new Error('You do not have permission to remove members from this community');
+    }
+
+    // Find and delete the membership document
+    const membershipQuery = query(
+      membersRef,
+      where('uid', '==', memberUid),
+      where('communityId', '==', communityId)
+    );
+
+    const membershipSnapshot = await getDocs(membershipQuery);
+
+    if (membershipSnapshot.empty) {
+      throw new Error('Member not found in community');
+    }
+
+    // Delete the membership document
+    const memberDoc = membershipSnapshot.docs[0];
+    await deleteDoc(memberDoc.ref);
+
+    // Update community member count
+    const communityRef = doc(communitiesRef, communityId);
+    const communityDoc = await getDoc(communityRef);
+
+    if (communityDoc.exists()) {
+      const currentCount = communityDoc.data().memberCount || 0;
+      await updateDoc(communityRef, {
+        memberCount: Math.max(0, currentCount - 1),
+        lastActivity: serverTimestamp()
+      });
+    }
+
+    console.log('✅ [SERVICE] Member removed successfully');
+  } catch (error) {
+    console.error('❌ [SERVICE] Failed to remove member:', error);
+    throw error;
   }
 };
 
@@ -581,13 +704,17 @@ export const approveJoinRequest = async (requestId: string, reviewerId: string):
 
     const requestData = requestDoc.data();
     
-    // Add user as member
+    // Add user as member - include profile data from the join request
     await addDoc(membersRef, {
       uid: requestData.userId,
       communityId: requestData.communityId,
       role: 'community_member',
       joinedAt: serverTimestamp(),
-      lastActive: serverTimestamp()
+      lastActive: serverTimestamp(),
+      // Include user profile data from the join request
+      email: requestData.userEmail || '',
+      displayName: requestData.userDisplayName || '',
+      photoURL: '' // We don't have photoURL in join requests, but we can add it later
     });
 
     // Update join request status

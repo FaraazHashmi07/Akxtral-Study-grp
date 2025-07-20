@@ -20,14 +20,16 @@ import { useCommunityStore } from '../../store/communityStore';
 import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
+import { useAnnouncementStore } from '../../store/announcementStore';
 import { getPendingJoinRequestsCount } from '../../services/communityService';
-import { ChatChannel } from '../../types';
+// Note: ChatChannel import removed - new system is community-based
 
 export const CommunitySidebar: React.FC = () => {
   const { activeCommunity, communityMembers } = useCommunityStore();
-  const { channels, activeChannel, setActiveChannel } = useChatStore();
+  // Note: New chat system is community-based, not channel-based
   const { activeSection, setActiveSection, openModal } = useUIStore();
   const { user } = useAuthStore();
+  const { unreadCounts } = useAnnouncementStore();
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   // Check if user is admin - either through roles or if they created the community
@@ -68,8 +70,8 @@ export const CommunitySidebar: React.FC = () => {
 
   if (!activeCommunity) return null;
 
-  const communityChannels = channels[activeCommunity.id] || [];
-  const members = communityMembers[activeCommunity.id] || [];
+  // New chat system doesn't use channels - it's community-based
+  const members = (communityMembers && activeCommunity?.id) ? (communityMembers[activeCommunity.id] || []) : [];
 
   console.log('👤 [SIDEBAR] Admin check:', {
     userId: user?.uid,
@@ -119,15 +121,14 @@ export const CommunitySidebar: React.FC = () => {
 
   const handleSectionClick = (sectionId: string) => {
     setActiveSection(sectionId as any);
-    if (sectionId === 'chat' && communityChannels.length > 0) {
-      // Auto-select first channel when switching to chat
-      setActiveChannel(communityChannels[0]);
-    }
-  };
 
-  const handleChannelClick = (channel: ChatChannel) => {
-    setActiveChannel(channel);
-    setActiveSection('chat');
+    // If clicking on announcements, immediately mark as read for instant badge removal
+    if (sectionId === 'announcements' && activeCommunity?.id) {
+      const { markAnnouncementsAsRead } = useAnnouncementStore.getState();
+      markAnnouncementsAsRead(activeCommunity.id);
+    }
+
+    // Note: New chat system doesn't need channel selection
   };
 
   return (
@@ -203,7 +204,10 @@ export const CommunitySidebar: React.FC = () => {
           {sections.map((section) => {
             const Icon = section.icon;
             const isActive = activeSection === section.id;
-            
+            const unreadCount = section.id === 'announcements' && activeCommunity?.id
+              ? unreadCounts[activeCommunity.id] || 0
+              : 0;
+
             return (
               <motion.button
                 key={section.id}
@@ -219,68 +223,17 @@ export const CommunitySidebar: React.FC = () => {
               >
                 <Icon size={18} />
                 <span className="font-medium">{section.name}</span>
+                {unreadCount > 0 && (
+                  <span className="ml-auto bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </motion.button>
             );
           })}
         </div>
 
-        {/* Chat Channels Section */}
-        {activeSection === 'chat' && (
-          <div className="mt-4 px-2">
-            <div className="flex items-center justify-between px-3 py-2">
-              <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Text Channels
-              </h3>
-              {isAdmin && (
-                <button
-                  onClick={() => openModal('createChannel', { communityId: activeCommunity.id })}
-                  className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded transition-colors"
-                  title="Create Channel"
-                >
-                  <Plus size={14} />
-                </button>
-              )}
-            </div>
-            
-            <div className="space-y-1">
-              {communityChannels
-                .filter(channel => channel.type === 'text')
-                .map((channel) => (
-                  <ChannelItem
-                    key={channel.id}
-                    channel={channel}
-                    isActive={activeChannel?.id === channel.id}
-                    onClick={() => handleChannelClick(channel)}
-                  />
-                ))}
-            </div>
-
-            {/* Voice Channels */}
-            {communityChannels.some(c => c.type === 'voice') && (
-              <>
-                <div className="flex items-center justify-between px-3 py-2 mt-4">
-                  <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    Voice Channels
-                  </h3>
-                </div>
-                
-                <div className="space-y-1">
-                  {communityChannels
-                    .filter(channel => channel.type === 'voice')
-                    .map((channel) => (
-                      <ChannelItem
-                        key={channel.id}
-                        channel={channel}
-                        isActive={activeChannel?.id === channel.id}
-                        onClick={() => handleChannelClick(channel)}
-                        isVoice
-                      />
-                    ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        {/* Note: Channel section removed - new chat system is community-based */}
 
         {/* Members Section */}
         <div className="mt-auto p-2">
@@ -300,37 +253,4 @@ export const CommunitySidebar: React.FC = () => {
   );
 };
 
-interface ChannelItemProps {
-  channel: ChatChannel;
-  isActive: boolean;
-  onClick: () => void;
-  isVoice?: boolean;
-}
-
-const ChannelItem: React.FC<ChannelItemProps> = ({
-  channel,
-  isActive,
-  onClick,
-  isVoice = false
-}) => {
-  const Icon = isVoice ? Volume2 : Hash;
-  
-  return (
-    <motion.button
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      onClick={onClick}
-      className={`w-full flex items-center space-x-2 px-3 py-1.5 rounded text-left transition-all duration-200 ${
-        isActive
-          ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white'
-          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-      }`}
-    >
-      <Icon size={16} />
-      <span className="text-sm font-medium truncate">{channel.name}</span>
-      
-      {/* Unread indicator */}
-      {/* TODO: Add unread message count when implemented */}
-    </motion.button>
-  );
-};
+// Note: ChannelItem component removed - new chat system is community-based

@@ -126,7 +126,23 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       }
 
       console.log('👤 Creating community for user:', user.uid);
-      const community = await communityService.createCommunity(data, user.uid);
+
+      // Prepare creator display name with better fallback
+      let creatorDisplayName = user.displayName;
+      if (!creatorDisplayName && user.email) {
+        creatorDisplayName = user.email.split('@')[0];
+        creatorDisplayName = creatorDisplayName.charAt(0).toUpperCase() + creatorDisplayName.slice(1);
+      }
+      if (!creatorDisplayName) {
+        creatorDisplayName = 'Community Creator';
+      }
+
+      const community = await communityService.createCommunity(
+        data,
+        user.uid,
+        user.email,
+        creatorDisplayName
+      );
       console.log('✅ Community created successfully:', community);
 
       const { joinedCommunities } = get();
@@ -216,11 +232,22 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       }
 
       console.log('🤝 [STORE] Joining community:', communityId, 'for user:', user.uid);
+
+      // Prepare user display name with better fallback
+      let userDisplayName = user.displayName;
+      if (!userDisplayName && user.email) {
+        userDisplayName = user.email.split('@')[0];
+        userDisplayName = userDisplayName.charAt(0).toUpperCase() + userDisplayName.slice(1);
+      }
+      if (!userDisplayName) {
+        userDisplayName = 'Community Member';
+      }
+
       await communityService.joinCommunity(
         communityId,
         user.uid,
         message,
-        user.displayName || user.email || 'Unknown User',
+        userDisplayName,
         user.email || ''
       );
 
@@ -313,12 +340,18 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
   // Remove a member from community (admin only)
   removeMember: async (communityId, userId) => {
     try {
-      // TODO: Implement Firestore member removal
-      // await removeMemberFromFirestore(communityId, userId);
-      
+      const user = useAuthStore.getState().user;
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Use the service function to remove member
+      await communityService.removeCommunityMember(communityId, userId, user.uid);
+
+      // Update local state
       const { communityMembers } = get();
       const members = communityMembers[communityId] || [];
-      
+
       set({
         communityMembers: {
           ...communityMembers,
@@ -327,6 +360,7 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       });
     } catch (error) {
       console.error('Failed to remove member:', error);
+      throw error;
     }
   },
 
