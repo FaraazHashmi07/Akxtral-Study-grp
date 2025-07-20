@@ -410,7 +410,7 @@ export interface UIState {
   notificationPanelOpen: boolean;
   activeCommunityId: string | null;
   activeChannelId: string | null;
-  activeSection: 'dashboard' | 'announcements' | 'chat' | 'resources' | 'calendar' | 'meets';
+  activeSection: 'dashboard' | 'announcements' | 'chat' | 'resources' | 'calendar';
 }
 
 // ===== SUPER ADMIN UI STATE =====

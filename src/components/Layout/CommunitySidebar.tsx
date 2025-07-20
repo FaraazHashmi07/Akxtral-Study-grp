@@ -6,7 +6,6 @@ import {
   MessageCircle,
   FolderOpen,
   Calendar,
-  Video,
   Hash,
   Volume2,
   Plus,
@@ -80,13 +79,8 @@ export const CommunitySidebar: React.FC = () => {
     isAdmin
   });
 
-  const sections = [
-    {
-      id: 'dashboard',
-      name: 'Dashboard',
-      icon: BarChart3,
-      description: 'Community overview and analytics'
-    },
+  // Base sections available to all users
+  const baseSections = [
     {
       id: 'announcements',
       name: 'Announcements',
@@ -110,14 +104,21 @@ export const CommunitySidebar: React.FC = () => {
       name: 'Calendar',
       icon: Calendar,
       description: 'Events and study sessions'
-    },
-    {
-      id: 'meets',
-      name: 'Meets',
-      icon: Video,
-      description: 'Video calls and meetings'
     }
   ];
+
+  // Admin-only sections
+  const adminSections = [
+    {
+      id: 'dashboard',
+      name: 'Dashboard',
+      icon: BarChart3,
+      description: 'Community overview and analytics'
+    }
+  ];
+
+  // Combine sections based on user role
+  const sections = isAdmin ? [...adminSections, ...baseSections] : baseSections;
 
   const handleSectionClick = (sectionId: string) => {
     setActiveSection(sectionId as any);

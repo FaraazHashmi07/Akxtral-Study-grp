@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Menu, Bell, Search } from 'lucide-react';
 import { useUIStore } from '../../store/uiStore';
 import { useCommunityStore } from '../../store/communityStore';
+import { useAuthStore } from '../../store/authStore';
 import { UserProfileDropdown } from '../UI/UserProfileDropdown';
 
 // Import section components (we'll create these next)
@@ -11,7 +12,6 @@ import { AnnouncementsSection } from '../Sections/AnnouncementsSection';
 import { ChatSection } from '../Sections/ChatSection';
 import { ResourcesSection } from '../Sections/ResourcesSection';
 import { CalendarSection } from '../Sections/CalendarSection';
-import { MeetsSection } from '../Sections/MeetsSection';
 import { HomeSection } from '../Sections/HomeSection';
 
 interface MainContentProps {
@@ -29,6 +29,7 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
   } = useUIStore();
   
   const { activeCommunity } = useCommunityStore();
+  const { user } = useAuthStore();
 
   const handleSearchClick = () => {
     setCommandPaletteOpen(true);
@@ -60,9 +61,21 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
       return <HomeSection />;
     }
 
-    console.log('🏢 [MAIN] Showing community section:', activeSection);
+    // Check if user is admin for role-based access control
+    const isAdmin = user && activeCommunity && (
+      user.communityRoles?.[activeCommunity.id]?.role === 'community_admin' ||
+      user.uid === activeCommunity.createdBy
+    );
+
+    console.log('🏢 [MAIN] Showing community section:', activeSection, 'isAdmin:', isAdmin);
+
     switch (activeSection) {
       case 'dashboard':
+        // Dashboard is admin-only
+        if (!isAdmin) {
+          console.log('⚠️ [MAIN] Non-admin user trying to access dashboard, redirecting to announcements');
+          return <AnnouncementsSection />;
+        }
         return <DashboardSection />;
       case 'announcements':
         return <AnnouncementsSection />;
@@ -72,16 +85,15 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
         return <ResourcesSection />;
       case 'calendar':
         return <CalendarSection />;
-      case 'meets':
-        return <MeetsSection />;
       default:
-        return <DashboardSection />;
+        // Default to announcements for non-admins, dashboard for admins
+        return isAdmin ? <DashboardSection /> : <AnnouncementsSection />;
     }
   };
 
   const getSectionTitle = () => {
     if (!activeCommunity) return 'Study Groups';
-    
+
     switch (activeSection) {
       case 'dashboard':
         return 'Dashboard';
@@ -93,10 +105,8 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
         return 'Resources';
       case 'calendar':
         return 'Calendar';
-      case 'meets':
-        return 'Meets';
       default:
-        return 'Dashboard';
+        return 'Announcements';
     }
   };
 

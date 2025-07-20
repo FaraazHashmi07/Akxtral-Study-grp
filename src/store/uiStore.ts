@@ -60,7 +60,7 @@ export const useUIStore = create<UIStore>()(
       notificationPanelOpen: false,
       activeCommunityId: null,
       activeChannelId: null,
-      activeSection: 'dashboard',
+      activeSection: 'announcements',
       
       // Non-persisted state
       toasts: [],
@@ -204,7 +204,7 @@ export const useUIStore = create<UIStore>()(
         set({ 
           activeCommunityId: communityId,
           activeChannelId: null, // Reset channel when switching communities
-          activeSection: 'dashboard' // Reset to dashboard when switching communities
+          activeSection: 'announcements' // Reset to announcements when switching communities
         });
       },
 
@@ -287,8 +287,7 @@ export const useUIStore = create<UIStore>()(
           '2': 'announcements',
           '3': 'chat',
           '4': 'resources',
-          '5': 'calendar',
-          '6': 'meets'
+          '5': 'calendar'
         };
         
         if (sectionMap[key] && (modifiers.includes('cmd') || modifiers.includes('ctrl'))) {
