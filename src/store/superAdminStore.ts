@@ -14,6 +14,10 @@ interface SuperAdminStore extends SuperAdminUIState {
   loading: boolean;
   error: string | null;
 
+  // Modal state
+  activeModal: string | null;
+  modalData: any;
+
   // Actions
   setActiveAdminSection: (section: SuperAdminUIState['activeAdminSection']) => void;
   setCommunitySearchQuery: (query: string) => void;
@@ -23,12 +27,20 @@ interface SuperAdminStore extends SuperAdminUIState {
   setShowDeleteConfirmation: (show: boolean) => void;
   setCommunityToDelete: (communityId: string | null) => void;
 
+  // Modal actions
+  openModal: (modalId: string, data?: any) => void;
+  closeModal: () => void;
+
   // Data loading
   loadAnalytics: () => Promise<void>;
   loadCommunities: () => Promise<void>;
   loadUsers: () => Promise<void>;
   deleteCommunity: (communityId: string) => Promise<void>;
   deleteCommunitydirect: (communityId: string) => Promise<void>;
+
+  // Super Admin Setup
+  checkSuperAdminClaims: () => Promise<boolean>;
+  setupSuperAdminClaims: (password?: string) => Promise<any>;
 
   // Utility
   setLoading: (loading: boolean) => void;
@@ -45,6 +57,10 @@ export const useSuperAdminStore = create<SuperAdminStore>((set, get) => ({
   selectedUserForView: null,
   showDeleteConfirmation: false,
   communityToDelete: null,
+
+  // Modal state
+  activeModal: null,
+  modalData: null,
 
   // Data
   analytics: null,
@@ -66,101 +82,226 @@ export const useSuperAdminStore = create<SuperAdminStore>((set, get) => ({
   setShowDeleteConfirmation: (show) => set({ showDeleteConfirmation: show }),
   setCommunityToDelete: (communityId) => set({ communityToDelete: communityId }),
 
+  // Modal actions
+  openModal: (modalId, data) => {
+    console.log('🔧 [SUPER_ADMIN] Opening modal:', modalId, data);
+    set({ activeModal: modalId, modalData: data || null });
+  },
+
+  closeModal: () => {
+    console.log('🔧 [SUPER_ADMIN] Closing modal');
+    set({ activeModal: null, modalData: null });
+  },
+
+  // Check if user is ready for super admin operations
+  isUserReady: async () => {
+    try {
+      const { auth } = await import('../lib/firebase');
+      const { useAuthStore } = await import('./authStore');
+
+      const currentUser = auth.currentUser;
+      const { isSuperAdmin } = useAuthStore.getState();
+
+      return currentUser && isSuperAdmin;
+    } catch (error) {
+      console.error('❌ [SUPER_ADMIN] Error checking user readiness:', error);
+      return false;
+    }
+  },
+
+  // Super Admin Setup and Verification
+  checkSuperAdminClaims: async () => {
+    try {
+      console.log('🔐 [SUPER_ADMIN] Checking super admin claims...');
+
+      const { auth } = await import('../lib/firebase');
+      const currentUser = auth.currentUser;
+
+      if (!currentUser) {
+        console.log('❌ [SUPER_ADMIN] No authenticated user found');
+        return false;
+      }
+
+      // Get fresh token with claims
+      const tokenResult = await currentUser.getIdTokenResult(true);
+      const isSuperAdmin = tokenResult.claims.super_admin === true;
+
+      console.log('🔍 [SUPER_ADMIN] Token claims:', {
+        email: currentUser.email,
+        uid: currentUser.uid,
+        claims: tokenResult.claims,
+        isSuperAdmin
+      });
+
+      // Update auth store
+      const { useAuthStore } = await import('./authStore');
+      useAuthStore.getState().setSuperAdminState(isSuperAdmin, tokenResult);
+
+      return isSuperAdmin;
+    } catch (error) {
+      console.error('❌ [SUPER_ADMIN] Failed to check claims:', error);
+      return false;
+    }
+  },
+
+  setupSuperAdminClaims: async (password?: string) => {
+    try {
+      console.log('🔧 [SUPER_ADMIN] Setting up super admin claims...');
+
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const { app } = await import('../lib/firebase');
+
+      const functions = getFunctions(app);
+      const setupSuperAdmin = httpsCallable(functions, 'setupSuperAdmin');
+
+      const result = await setupSuperAdmin({
+        email: '160422747039@mjcollege.ac.in',
+        setupKey: 'SETUP_SUPER_ADMIN_2024',
+        password: password || 'faraz123' // Default to faraz123 if no password provided
+      });
+
+      console.log('✅ [SUPER_ADMIN] Setup result:', result.data);
+
+      // Refresh claims after setup
+      await get().checkSuperAdminClaims();
+
+      return result.data;
+    } catch (error) {
+      console.error('❌ [SUPER_ADMIN] Failed to setup claims:', error);
+      throw error;
+    }
+  },
+
   // Data Loading Actions
   loadAnalytics: async () => {
     set({ loading: true, error: null });
     try {
       console.log('📊 [SUPER_ADMIN] Loading analytics...');
 
-      // Import Firebase Functions
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { app } = await import('../lib/firebase');
+      // Wait for Firebase auth to be ready
+      const { auth } = await import('../lib/firebase');
 
-      const functions = getFunctions(app);
-
-      // Try different function names
-      let getSuperAdminAnalytics;
-      try {
-        // First try the prefixed name
-        getSuperAdminAnalytics = httpsCallable(functions, 'super-admin-getSuperAdminAnalytics');
-      } catch {
-        // Fallback to original name
-        getSuperAdminAnalytics = httpsCallable(functions, 'getSuperAdminAnalytics');
-      }
-
-      const result = await getSuperAdminAnalytics();
-      const analytics = result.data as SuperAdminAnalytics;
-
-      console.log('✅ [SUPER_ADMIN] Analytics loaded:', analytics);
-      set({ analytics, loading: false });
-    } catch (error) {
-      console.error('❌ [SUPER_ADMIN] Failed to load analytics:', error);
-
-      // Try to load data directly from Firestore as fallback
-      try {
-        console.log('🔄 [SUPER_ADMIN] Trying direct Firestore access...');
-        const { collection, getDocs, query, where } = await import('firebase/firestore');
-        const { db } = await import('../lib/firebase');
-
-        // Get basic counts directly from Firestore
-        const communitiesSnapshot = await getDocs(collection(db, 'communities'));
-        const totalCommunities = communitiesSnapshot.size;
-
-        // Get communities created this week
-        const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-
-        const recentCommunitiesSnapshot = await getDocs(
-          query(collection(db, 'communities'), where('createdAt', '>=', oneWeekAgo))
-        );
-        const communitiesCreatedThisWeek = recentCommunitiesSnapshot.size;
-
-        // Get flagged communities
-        const flaggedCommunitiesSnapshot = await getDocs(
-          query(collection(db, 'communities'), where('flagged', '==', true))
-        );
-        const flaggedCommunities = flaggedCommunitiesSnapshot.size;
-
-        const fallbackAnalytics: SuperAdminAnalytics = {
-          totalUsers: 0, // Can't get from Firestore easily
-          totalCommunities,
-          communitiesCreatedThisWeek,
-          flaggedCommunities,
-          storageUsage: 0, // Can't get from Firestore
-          topActiveCommunities: []
-        };
-
-        console.log('✅ [SUPER_ADMIN] Fallback analytics loaded:', fallbackAnalytics);
-        set({ analytics: fallbackAnalytics, loading: false });
-      } catch (fallbackError) {
-        console.error('❌ [SUPER_ADMIN] Fallback also failed:', fallbackError);
-
-        // Final fallback to empty data
-        const emptyAnalytics: SuperAdminAnalytics = {
-          totalUsers: 0,
-          totalCommunities: 0,
-          communitiesCreatedThisWeek: 0,
-          flaggedCommunities: 0,
-          storageUsage: 0,
-          topActiveCommunities: []
-        };
-
-        set({
-          analytics: emptyAnalytics,
-          error: 'Unable to load analytics. Please check Firebase Functions deployment.',
-          loading: false
+      // Wait for auth state to be ready
+      await new Promise<void>((resolve, reject) => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          unsubscribe();
+          if (user) {
+            resolve();
+          } else {
+            reject(new Error('No authenticated user found'));
+          }
         });
+
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          unsubscribe();
+          reject(new Error('Authentication timeout'));
+        }, 10000);
+      });
+
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error('No authenticated user found after auth state check');
       }
+
+      console.log('🔐 [SUPER_ADMIN] Verifying super admin claims...');
+
+      // Get fresh token with claims to verify super admin status
+      const tokenResult = await currentUser.getIdTokenResult(true);
+      const isSuperAdmin = tokenResult.claims.super_admin === true;
+
+      console.log('🔍 [SUPER_ADMIN] Token verification:', {
+        email: currentUser.email,
+        uid: currentUser.uid,
+        isSuperAdmin,
+        claims: tokenResult.claims
+      });
+
+      if (!isSuperAdmin) {
+        throw new Error('User must have super admin privileges to access analytics');
+      }
+
+      // Update auth store with verified super admin state
+      const { useAuthStore } = await import('./authStore');
+      useAuthStore.getState().setSuperAdminState(isSuperAdmin, tokenResult);
+
+      // Try Firebase Functions first
+      try {
+        const { getFunctions, httpsCallable } = await import('firebase/functions');
+        const { app } = await import('../lib/firebase');
+
+        const functions = getFunctions(app);
+        console.log('📞 [SUPER_ADMIN] Calling getSuperAdminAnalytics function...');
+        const getSuperAdminAnalytics = httpsCallable(functions, 'getSuperAdminAnalytics');
+
+        const callWithTimeout = async (timeoutMs: number = 10000) => {
+          return Promise.race([
+            getSuperAdminAnalytics(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Function call timeout')), timeoutMs)
+            )
+          ]);
+        };
+
+        const functionResult = await callWithTimeout();
+        const analytics = functionResult.data as SuperAdminAnalytics;
+
+        console.log('✅ [SUPER_ADMIN] Analytics loaded via Firebase Functions:', analytics);
+        set({ analytics, loading: false });
+        return;
+      } catch (funcError) {
+        console.warn('⚠️ [SUPER_ADMIN] Firebase Functions failed, trying direct Firestore access:', funcError);
+      }
+
+      // Fallback to direct Firestore access
+      console.log('🔄 [SUPER_ADMIN] Using direct Firestore access...');
+      const { collection, getDocs, query, where } = await import('firebase/firestore');
+      const { db } = await import('../lib/firebase');
+
+      const communitiesSnapshot = await getDocs(collection(db, 'communities'));
+      const totalCommunities = communitiesSnapshot.size;
+
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+      const recentCommunitiesSnapshot = await getDocs(
+        query(collection(db, 'communities'), where('createdAt', '>=', oneWeekAgo))
+      );
+      const communitiesCreatedThisWeek = recentCommunitiesSnapshot.size;
+
+      const flaggedCommunitiesSnapshot = await getDocs(
+        query(collection(db, 'communities'), where('flagged', '==', true))
+      );
+      const flaggedCommunities = flaggedCommunitiesSnapshot.size;
+
+      const fallbackAnalytics: SuperAdminAnalytics = {
+        totalUsers: 0,
+        totalCommunities,
+        communitiesCreatedThisWeek,
+        flaggedCommunities,
+        storageUsage: 0,
+        topActiveCommunities: []
+      };
+
+      console.log('✅ [SUPER_ADMIN] Fallback analytics loaded:', fallbackAnalytics);
+      set({ analytics: fallbackAnalytics, loading: false });
+    } catch (mainError) {
+      console.error('❌ [SUPER_ADMIN] Analytics loading failed:', mainError);
+      set({
+        analytics: null,
+        error: mainError instanceof Error ? mainError.message : 'Failed to load analytics',
+        loading: false
+      });
     }
   },
 
   loadCommunities: async () => {
     set({ loading: true, error: null });
     try {
-      console.log('🏢 [SUPER_ADMIN] Loading communities...');
+      console.log('🏢 [SUPER_ADMIN] Loading communities with optimized real-time data...');
 
       // Import Firestore
-      const { collection, getDocs, query, orderBy } = await import('firebase/firestore');
+      const { collection, getDocs, query, orderBy, limit, where, doc, getDoc } = await import('firebase/firestore');
       const { db } = await import('../lib/firebase');
 
       const communitiesQuery = query(
@@ -169,25 +310,163 @@ export const useSuperAdminStore = create<SuperAdminStore>((set, get) => ({
       );
 
       const snapshot = await getDocs(communitiesQuery);
-      const communities: SuperAdminCommunityView[] = snapshot.docs.map(doc => {
-        const data = doc.data();
+
+      // First, set basic community data immediately for faster UI response
+      const basicCommunities: SuperAdminCommunityView[] = snapshot.docs.map(communityDoc => {
+        const data = communityDoc.data();
         return {
-          id: doc.id,
+          id: communityDoc.id,
           name: data.name || 'Unknown',
           description: data.description || '',
           creatorEmail: data.creatorEmail || 'Unknown',
+          creatorName: 'Loading...',
           creatorUid: data.createdBy || '',
           createdAt: data.createdAt?.toDate() || new Date(),
-          memberCount: data.memberCount || 0,
-          resourceCount: data.resourceCount || 0,
-          messageCount: data.messageCount || 0,
-          eventCount: data.eventCount || 0,
+          memberCount: 0,
+          resourceCount: 0,
+          messageCount: 0,
+          eventCount: 0,
           flagged: data.flagged || false,
-          lastActivity: data.lastActivity?.toDate() || new Date()
+          lastActivity: data.createdAt?.toDate() || new Date()
         };
       });
 
-      set({ communities, loading: false });
+      // Set basic data immediately
+      set({ communities: basicCommunities, loading: false });
+
+      // Now fetch detailed data in batches for better performance
+      console.log('📊 [SUPER_ADMIN] Fetching detailed data in optimized batches...');
+
+      const BATCH_SIZE = 5; // Process 5 communities at a time
+      const communityDocs = snapshot.docs;
+
+      for (let i = 0; i < communityDocs.length; i += BATCH_SIZE) {
+        const batch = communityDocs.slice(i, i + BATCH_SIZE);
+
+        // Process batch in parallel
+        const batchResults = await Promise.all(
+          batch.map(async (communityDoc) => {
+            const data = communityDoc.data();
+            const communityId = communityDoc.id;
+
+            try {
+              // Fetch all subcollection counts in parallel
+              const [rolesSnapshot, messagesSnapshot, resourcesSnapshot, calendarSnapshot] = await Promise.all([
+                getDocs(collection(db, 'communities', communityId, 'roles')),
+                getDocs(collection(db, 'communities', communityId, 'messages')),
+                getDocs(query(collection(db, 'resources'), where('communityId', '==', communityId))),
+                getDocs(collection(db, 'communities', communityId, 'calendar'))
+              ]);
+
+              const memberCount = rolesSnapshot.size;
+              const messageCount = messagesSnapshot.size;
+              const resourceCount = resourcesSnapshot.size;
+              const eventCount = calendarSnapshot.size;
+
+              // Get creator information and last activity in parallel
+              const [creatorInfo, lastActivityInfo] = await Promise.all([
+                // Creator info
+                (async () => {
+                  let creatorEmail = data.creatorEmail || 'Unknown';
+                  let creatorName = 'Unknown User';
+
+                  if (data.createdBy) {
+                    try {
+                      const userDoc = await getDoc(doc(db, 'users', data.createdBy));
+                      if (userDoc.exists()) {
+                        const userData = userDoc.data();
+                        creatorEmail = userData.email || creatorEmail;
+                        creatorName = userData.displayName || userData.name || creatorName;
+                      }
+                    } catch (userError) {
+                      console.warn(`⚠️ [SUPER_ADMIN] Could not fetch creator info for ${communityId}:`, userError);
+                    }
+                  }
+                  return { creatorEmail, creatorName };
+                })(),
+
+                // Last activity
+                (async () => {
+                  let lastActivity = data.createdAt?.toDate() || new Date();
+                  if (messageCount > 0) {
+                    try {
+                      const lastMessageQuery = query(
+                        collection(db, 'communities', communityId, 'messages'),
+                        orderBy('createdAt', 'desc'),
+                        limit(1)
+                      );
+                      const lastMessageSnapshot = await getDocs(lastMessageQuery);
+                      if (!lastMessageSnapshot.empty) {
+                        const lastMessageData = lastMessageSnapshot.docs[0].data();
+                        lastActivity = lastMessageData.createdAt?.toDate() || lastActivity;
+                      }
+                    } catch (messageError) {
+                      console.warn(`⚠️ [SUPER_ADMIN] Could not fetch last message for ${communityId}:`, messageError);
+                    }
+                  }
+                  return lastActivity;
+                })()
+              ]);
+
+              return {
+                id: communityId,
+                name: data.name || 'Unknown',
+                description: data.description || '',
+                creatorEmail: creatorInfo.creatorEmail,
+                creatorName: creatorInfo.creatorName,
+                creatorUid: data.createdBy || '',
+                createdAt: data.createdAt?.toDate() || new Date(),
+                memberCount,
+                resourceCount,
+                messageCount,
+                eventCount,
+                flagged: data.flagged || false,
+                lastActivity: lastActivityInfo
+              };
+            } catch (error) {
+              console.error(`❌ [SUPER_ADMIN] Failed to fetch data for community ${communityId}:`, error);
+              // Return basic data if detailed fetch fails
+              return {
+                id: communityId,
+                name: data.name || 'Unknown',
+                description: data.description || '',
+                creatorEmail: data.creatorEmail || 'Unknown',
+                creatorName: 'Error loading',
+                creatorUid: data.createdBy || '',
+                createdAt: data.createdAt?.toDate() || new Date(),
+                memberCount: 0,
+                resourceCount: 0,
+                messageCount: 0,
+                eventCount: 0,
+                flagged: data.flagged || false,
+                lastActivity: data.createdAt?.toDate() || new Date()
+              };
+            }
+          })
+        );
+
+        // Update state with this batch
+        const { communities: currentCommunities } = get();
+        const updatedCommunities = [...currentCommunities];
+
+        batchResults.forEach((result, index) => {
+          const globalIndex = i + index;
+          if (globalIndex < updatedCommunities.length) {
+            updatedCommunities[globalIndex] = result;
+          }
+        });
+
+        set({ communities: updatedCommunities });
+
+        console.log(`✅ [SUPER_ADMIN] Processed batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(communityDocs.length / BATCH_SIZE)}`);
+
+        // Small delay between batches to prevent overwhelming Firestore
+        if (i + BATCH_SIZE < communityDocs.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+
+      console.log(`🎉 [SUPER_ADMIN] Successfully loaded ${communityDocs.length} communities with optimized real-time data`);
     } catch (error) {
       console.error('❌ [SUPER_ADMIN] Failed to load communities:', error);
       set({
@@ -253,16 +532,9 @@ export const useSuperAdminStore = create<SuperAdminStore>((set, get) => ({
 
         const functions = getFunctions(app);
 
-        // Try the super-admin prefixed function first
-        let deleteCommunityRecursively;
-        try {
-          deleteCommunityRecursively = httpsCallable(functions, 'super-admin-deleteCommunityRecursively');
-          console.log('🔧 [SUPER_ADMIN] Trying super-admin-deleteCommunityRecursively...');
-        } catch {
-          // Fallback to original function name
-          deleteCommunityRecursively = httpsCallable(functions, 'deleteCommunityRecursively');
-          console.log('🔧 [SUPER_ADMIN] Falling back to deleteCommunityRecursively...');
-        }
+        // Call the correct function name (without prefix)
+        const deleteCommunityRecursively = httpsCallable(functions, 'deleteCommunityRecursively');
+        console.log('🔧 [SUPER_ADMIN] Calling deleteCommunityRecursively...');
 
         const result = await deleteCommunityRecursively({ communityId });
         console.log('✅ [SUPER_ADMIN] Community deleted via Functions:', result.data);
@@ -369,6 +641,8 @@ export const useSuperAdminStore = create<SuperAdminStore>((set, get) => ({
       selectedUserForView: null,
       showDeleteConfirmation: false,
       communityToDelete: null,
+      activeModal: null,
+      modalData: null,
       analytics: null,
       communities: [],
       users: [],

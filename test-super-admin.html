@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Admin Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 10px 5px;
+            font-size: 14px;
+        }
+        .button:hover {
+            background: #0056b3;
+        }
+        .button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .success {
+            background: #28a745;
+        }
+        .danger {
+            background: #dc3545;
+        }
+        .result {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 6px;
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        .success-result {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        pre {
+            background: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Super Admin Setup & Test</h1>
+        <p>This tool helps set up and test super admin functionality for the Study Group Collaboration App.</p>
+        
+        <div>
+            <h3>Step 1: Authentication</h3>
+            <button id="loginBtn" class="button">Login with Super Admin Email</button>
+            <button id="logoutBtn" class="button danger">Logout</button>
+            <div id="authStatus" class="result">Not authenticated</div>
+        </div>
+
+        <div>
+            <h3>Step 2: Check Claims</h3>
+            <button id="checkClaimsBtn" class="button">Check Super Admin Claims</button>
+            <div id="claimsStatus" class="result">Claims not checked</div>
+        </div>
+
+        <div>
+            <h3>Step 3: Setup Claims (if needed)</h3>
+            <button id="setupClaimsBtn" class="button success">Setup Super Admin Claims</button>
+            <div id="setupStatus" class="result">Setup not attempted</div>
+        </div>
+
+        <div>
+            <h3>Step 4: Test Analytics</h3>
+            <button id="testAnalyticsBtn" class="button">Test Analytics Function</button>
+            <div id="analyticsStatus" class="result">Analytics not tested</div>
+        </div>
+
+        <div>
+            <h3>Debug Information</h3>
+            <pre id="debugInfo">Debug information will appear here...</pre>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+        import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-functions.js';
+
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyCmA5CqGPQjbeCGQ6o6uxdk1yMi-Q0ymog",
+            authDomain: "grp-study.firebaseapp.com",
+            projectId: "grp-study",
+            storageBucket: "grp-study.firebasestorage.app",
+            messagingSenderId: "723082992805",
+            appId: "1:723082992805:web:64bcee5c2d0f1122b4414c",
+            measurementId: "G-G2HHEP2Z3L"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const functions = getFunctions(app);
+
+        // DOM elements
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const checkClaimsBtn = document.getElementById('checkClaimsBtn');
+        const setupClaimsBtn = document.getElementById('setupClaimsBtn');
+        const testAnalyticsBtn = document.getElementById('testAnalyticsBtn');
+        
+        const authStatus = document.getElementById('authStatus');
+        const claimsStatus = document.getElementById('claimsStatus');
+        const setupStatus = document.getElementById('setupStatus');
+        const analyticsStatus = document.getElementById('analyticsStatus');
+        const debugInfo = document.getElementById('debugInfo');
+
+        let currentUser = null;
+
+        // Helper functions
+        function updateDebug(info) {
+            debugInfo.textContent = JSON.stringify(info, null, 2);
+        }
+
+        function setStatus(element, message, type = 'info') {
+            element.textContent = message;
+            element.className = `result ${type === 'error' ? 'error' : type === 'success' ? 'success-result' : ''}`;
+        }
+
+        // Auth state listener
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                setStatus(authStatus, `Authenticated as: ${user.email}`, 'success');
+                updateDebug({
+                    user: {
+                        uid: user.uid,
+                        email: user.email,
+                        emailVerified: user.emailVerified
+                    }
+                });
+            } else {
+                setStatus(authStatus, 'Not authenticated', 'error');
+                updateDebug({ user: null });
+            }
+        });
+
+        // Event listeners
+        loginBtn.addEventListener('click', async () => {
+            const email = '160422747039@mjcollege.ac.in';
+            const password = prompt('Enter password for super admin account:');
+            
+            if (!password) return;
+
+            try {
+                loginBtn.disabled = true;
+                setStatus(authStatus, 'Logging in...', 'info');
+                
+                await signInWithEmailAndPassword(auth, email, password);
+                setStatus(authStatus, 'Login successful!', 'success');
+            } catch (error) {
+                setStatus(authStatus, `Login failed: ${error.message}`, 'error');
+                updateDebug({ loginError: error });
+            } finally {
+                loginBtn.disabled = false;
+            }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                setStatus(authStatus, 'Logged out', 'info');
+            } catch (error) {
+                setStatus(authStatus, `Logout failed: ${error.message}`, 'error');
+            }
+        });
+
+        checkClaimsBtn.addEventListener('click', async () => {
+            if (!currentUser) {
+                setStatus(claimsStatus, 'Please login first', 'error');
+                return;
+            }
+
+            try {
+                checkClaimsBtn.disabled = true;
+                setStatus(claimsStatus, 'Checking claims...', 'info');
+                
+                const tokenResult = await currentUser.getIdTokenResult(true);
+                const isSuperAdmin = tokenResult.claims.super_admin === true;
+                
+                setStatus(claimsStatus, 
+                    isSuperAdmin ? 'Super admin claims found!' : 'No super admin claims found', 
+                    isSuperAdmin ? 'success' : 'error'
+                );
+                
+                updateDebug({
+                    claims: tokenResult.claims,
+                    isSuperAdmin
+                });
+            } catch (error) {
+                setStatus(claimsStatus, `Error checking claims: ${error.message}`, 'error');
+                updateDebug({ claimsError: error });
+            } finally {
+                checkClaimsBtn.disabled = false;
+            }
+        });
+
+        setupClaimsBtn.addEventListener('click', async () => {
+            if (!currentUser) {
+                setStatus(setupStatus, 'Please login first', 'error');
+                return;
+            }
+
+            try {
+                setupClaimsBtn.disabled = true;
+                setStatus(setupStatus, 'Setting up super admin claims...', 'info');
+                
+                const setupSuperAdmin = httpsCallable(functions, 'setupSuperAdmin');
+                const result = await setupSuperAdmin({
+                    email: '160422747039@mjcollege.ac.in',
+                    setupKey: 'SETUP_SUPER_ADMIN_2024'
+                });
+                
+                setStatus(setupStatus, 'Super admin claims set up successfully!', 'success');
+                updateDebug({ setupResult: result.data });
+                
+                // Refresh token to get new claims
+                setTimeout(async () => {
+                    await currentUser.getIdToken(true);
+                    setStatus(setupStatus, 'Claims refreshed. Please check claims again.', 'success');
+                }, 1000);
+                
+            } catch (error) {
+                setStatus(setupStatus, `Setup failed: ${error.message}`, 'error');
+                updateDebug({ setupError: error });
+            } finally {
+                setupClaimsBtn.disabled = false;
+            }
+        });
+
+        testAnalyticsBtn.addEventListener('click', async () => {
+            if (!currentUser) {
+                setStatus(analyticsStatus, 'Please login first', 'error');
+                return;
+            }
+
+            try {
+                testAnalyticsBtn.disabled = true;
+                setStatus(analyticsStatus, 'Testing analytics function...', 'info');
+                
+                // Refresh token first
+                await currentUser.getIdToken(true);
+                
+                const getSuperAdminAnalytics = httpsCallable(functions, 'getSuperAdminAnalytics');
+                const result = await getSuperAdminAnalytics();
+                
+                setStatus(analyticsStatus, 'Analytics function works!', 'success');
+                updateDebug({ analyticsResult: result.data });
+                
+            } catch (error) {
+                setStatus(analyticsStatus, `Analytics test failed: ${error.message}`, 'error');
+                updateDebug({ analyticsError: error });
+            } finally {
+                testAnalyticsBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

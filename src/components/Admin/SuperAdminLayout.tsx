@@ -15,6 +15,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
 import { useSuperAdminStore } from '../../store/superAdminStore';
 import { UserProfileDropdown } from '../UI/UserProfileDropdown';
+import { SuperAdminModalContainer } from './SuperAdminModalContainer';
 
 // Admin Pages
 import { AdminDashboard } from './pages/AdminDashboard';
@@ -193,6 +194,9 @@ export const SuperAdminLayout: React.FC = () => {
           </Routes>
         </div>
       </div>
+
+      {/* Modal Container */}
+      <SuperAdminModalContainer />
     </div>
   );
 };

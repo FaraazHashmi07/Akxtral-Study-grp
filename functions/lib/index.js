@@ -5,6 +5,17 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 // Initialize Firebase Admin
 admin.initializeApp();
+// CORS configuration for web clients (for future HTTP endpoints)
+// const corsOptions = {
+//   origin: [
+//     'http://localhost:5173',
+//     'https://studygroup22.netlify.app',
+//     'https://sg23.netlify.app',
+//     'https://grp-study.web.app',
+//     'https://grp-study.firebaseapp.com'
+//   ],
+//   credentials: true
+// };
 const db = admin.firestore();
 const storage = admin.storage();
 /**
@@ -90,7 +101,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             .doc(communityId)
             .collection('members')
             .get();
-        membersSnapshot.docs.forEach(doc => {
+        membersSnapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
         // 3. Delete community roles
@@ -99,7 +110,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             .doc(communityId)
             .collection('roles')
             .get();
-        rolesSnapshot.docs.forEach(doc => {
+        rolesSnapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
         // 4. Delete chat channels and messages
@@ -113,7 +124,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             const messagesSnapshot = await channelDoc.ref
                 .collection('messages')
                 .get();
-            messagesSnapshot.docs.forEach(messageDoc => {
+            messagesSnapshot.docs.forEach((messageDoc) => {
                 batch.delete(messageDoc.ref);
             });
             // Delete the channel
@@ -125,7 +136,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             .doc(communityId)
             .collection('resources')
             .get();
-        resourcesSnapshot.docs.forEach(doc => {
+        resourcesSnapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
         // 6. Delete events
@@ -134,7 +145,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             .doc(communityId)
             .collection('events')
             .get();
-        eventsSnapshot.docs.forEach(doc => {
+        eventsSnapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
         // 7. Delete announcements
@@ -143,7 +154,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             .doc(communityId)
             .collection('announcements')
             .get();
-        announcementsSnapshot.docs.forEach(doc => {
+        announcementsSnapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
         // 8. Delete join requests
@@ -151,7 +162,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             .collection('joinRequests')
             .where('communityId', '==', communityId)
             .get();
-        joinRequestsSnapshot.docs.forEach(doc => {
+        joinRequestsSnapshot.docs.forEach((doc) => {
             batch.delete(doc.ref);
         });
         // Commit all Firestore deletions
@@ -165,7 +176,7 @@ exports.deleteCommunityRecursively = functions.https.onCall(async (data, context
             });
             if (files.length > 0) {
                 console.log(`🗂️ Deleting ${files.length} files from Storage`);
-                await Promise.all(files.map(file => file.delete()));
+                await Promise.all(files.map((file) => file.delete()));
                 console.log(`✅ Storage files deleted for community: ${communityId}`);
             }
             else {
@@ -238,7 +249,7 @@ exports.getSuperAdminAnalytics = functions.https.onCall(async (data, context) =>
         }
         // Get top active communities
         const topActiveCommunities = communitiesSnapshot.docs
-            .map(doc => {
+            .map((doc) => {
             const data = doc.data();
             return {
                 id: doc.id,

@@ -1,3 +1,35 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Emoji display enhancements */
+.emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Android Emoji', 'EmojiSymbols', sans-serif;
+  font-size: 1.1em;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+.emoji-large {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Android Emoji', 'EmojiSymbols', sans-serif;
+  font-size: 2.5em;
+  line-height: 1.2;
+  display: inline-block;
+  vertical-align: baseline;
+}
+
+/* Ensure emoji picker displays properly */
+.EmojiPickerReact {
+  --epr-bg-color: theme('colors.white');
+  --epr-text-color: theme('colors.gray.900');
+  --epr-search-input-bg-color: theme('colors.gray.50');
+  --epr-picker-border-color: theme('colors.gray.200');
+}
+
+.dark .EmojiPickerReact {
+  --epr-bg-color: theme('colors.gray.800');
+  --epr-text-color: theme('colors.white');
+  --epr-search-input-bg-color: theme('colors.gray.700');
+  --epr-picker-border-color: theme('colors.gray.600');
+}

@@ -6,15 +6,50 @@ admin.initializeApp();
 
 // Function to set up super admin (run once)
 exports.setupSuperAdmin = functions.https.onCall(async (data, context) => {
-  // The email that will become super admin
-  const targetEmail = '160422747039@mjcollege.ac.in';
+  const { email, setupKey, password } = data;
+  const targetEmail = email || '160422747039@mjcollege.ac.in';
+  const targetPassword = password || 'faraz123';
+
+  console.log('🔧 Setup request received:', { targetEmail, hasPassword: !!password, setupKey });
+
+  // Allow setup for the specific super admin email
+  if (targetEmail !== '160422747039@mjcollege.ac.in') {
+    throw new functions.https.HttpsError('permission-denied', 'Invalid email for super admin setup');
+  }
 
   try {
-    console.log(`Looking for user with email: ${targetEmail}`);
+    console.log(`Setting up super admin for email: ${targetEmail} with password: ${targetPassword}`);
 
-    // Find the user by email
-    const user = await admin.auth().getUserByEmail(targetEmail);
-    console.log(`Found user: ${user.uid}`);
+    let user;
+
+    try {
+      // Try to find existing user
+      user = await admin.auth().getUserByEmail(targetEmail);
+      console.log(`Found existing user: ${user.uid}`);
+
+      // Update password
+      await admin.auth().updateUser(user.uid, {
+        password: targetPassword,
+        emailVerified: true
+      });
+      console.log(`Password updated for user: ${user.uid}`);
+
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') {
+        console.log(`User not found, creating new user...`);
+
+        // Create new user
+        user = await admin.auth().createUser({
+          email: targetEmail,
+          password: targetPassword,
+          emailVerified: true,
+          displayName: 'Super Admin'
+        });
+        console.log(`Created new user: ${user.uid}`);
+      } else {
+        throw error;
+      }
+    }
 
     // Assign the super_admin custom claim
     await admin.auth().setCustomUserClaims(user.uid, {
@@ -25,21 +60,74 @@ exports.setupSuperAdmin = functions.https.onCall(async (data, context) => {
 
     return {
       success: true,
-      message: 'Super admin claim assigned successfully!',
-      userEmail: targetEmail,
+      message: 'Super admin setup completed successfully!',
+      email: targetEmail,
+      password: targetPassword,
       userId: user.uid
     };
 
   } catch (error) {
     console.error('❌ Error setting up super admin:', error);
+    throw new functions.https.HttpsError('internal', error.message);
+  }
+});
 
-    if (error.code === 'auth/user-not-found') {
-      throw new functions.https.HttpsError(
-        'not-found',
-        `User with email ${targetEmail} not found. Make sure this email is registered in Firebase Auth.`
-      );
+// Simple function to set password to faraz123 (no parameters needed)
+exports.setPasswordFaraz123 = functions.https.onCall(async (data, context) => {
+  const targetEmail = '160422747039@mjcollege.ac.in';
+  const targetPassword = 'faraz123';
+
+  try {
+    console.log(`🔑 Setting password to faraz123 for: ${targetEmail}`);
+
+    let user;
+
+    try {
+      // Try to find existing user
+      user = await admin.auth().getUserByEmail(targetEmail);
+      console.log(`Found existing user: ${user.uid}`);
+
+      // Update password
+      await admin.auth().updateUser(user.uid, {
+        password: targetPassword,
+        emailVerified: true
+      });
+      console.log(`Password updated for user: ${user.uid}`);
+
+    } catch (error) {
+      if (error.code === 'auth/user-not-found') {
+        console.log(`User not found, creating new user...`);
+
+        // Create new user
+        user = await admin.auth().createUser({
+          email: targetEmail,
+          password: targetPassword,
+          emailVerified: true,
+          displayName: 'Super Admin'
+        });
+        console.log(`Created new user: ${user.uid}`);
+      } else {
+        throw error;
+      }
     }
 
+    // Assign the super_admin custom claim
+    await admin.auth().setCustomUserClaims(user.uid, {
+      super_admin: true
+    });
+
+    console.log(`✅ Super admin setup complete for ${targetEmail} with password faraz123`);
+
+    return {
+      success: true,
+      message: 'Super admin setup completed with password faraz123!',
+      email: targetEmail,
+      password: targetPassword,
+      userId: user.uid
+    };
+
+  } catch (error) {
+    console.error('❌ Error setting up super admin:', error);
     throw new functions.https.HttpsError('internal', error.message);
   }
 });

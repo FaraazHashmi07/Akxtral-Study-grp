@@ -4,6 +4,18 @@ import * as admin from 'firebase-admin';
 // Initialize Firebase Admin
 admin.initializeApp();
 
+// CORS configuration for web clients (for future HTTP endpoints)
+// const corsOptions = {
+//   origin: [
+//     'http://localhost:5173',
+//     'https://studygroup22.netlify.app',
+//     'https://sg23.netlify.app',
+//     'https://grp-study.web.app',
+//     'https://grp-study.firebaseapp.com'
+//   ],
+//   credentials: true
+// };
+
 const db = admin.firestore();
 const storage = admin.storage();
 
@@ -12,11 +24,11 @@ const storage = admin.storage();
  * This function should be called once to set up the Super Admin account
  * After setup, this function can be removed or disabled
  */
-export const setupSuperAdmin = functions.https.onCall(async (data, context) => {
+export const setupSuperAdmin = functions.https.onCall(async (data: any, context: any) => {
   // This is a one-time setup function - add additional security if needed
   // For production, you might want to add IP restrictions or other security measures
 
-  const { email, setupKey } = data;
+  const { email, setupKey, password } = data;
 
   // Simple setup key verification (change this to something secure)
   if (setupKey !== 'SETUP_SUPER_ADMIN_2024') {
@@ -35,6 +47,15 @@ export const setupSuperAdmin = functions.https.onCall(async (data, context) => {
     try {
       userRecord = await admin.auth().getUserByEmail(email);
       console.log(`✅ Found existing user: ${userRecord.uid}`);
+
+      // Update password if provided
+      if (password) {
+        await admin.auth().updateUser(userRecord.uid, {
+          password: password,
+          emailVerified: true
+        });
+        console.log(`🔑 Password updated for existing user: ${userRecord.uid}`);
+      }
     } catch (error) {
       // User doesn't exist, create them
       console.log(`👤 Creating new user for email: ${email}`);
@@ -42,7 +63,7 @@ export const setupSuperAdmin = functions.https.onCall(async (data, context) => {
         email: email,
         emailVerified: true,
         displayName: 'Super Admin',
-        password: 'TempPassword123!' // User should change this immediately
+        password: password || 'TempPassword123!' // Use provided password or default
       });
       console.log(`✅ Created new user: ${userRecord.uid}`);
     }
@@ -58,6 +79,8 @@ export const setupSuperAdmin = functions.https.onCall(async (data, context) => {
       success: true,
       message: `Super Admin setup completed for ${email}`,
       uid: userRecord.uid,
+      email: email,
+      password: password || 'TempPassword123!',
       setupAt: admin.firestore.FieldValue.serverTimestamp()
     };
 
@@ -74,7 +97,7 @@ export const setupSuperAdmin = functions.https.onCall(async (data, context) => {
  * Recursively delete a community and all its associated data
  * Only callable by Super Admin users
  */
-export const deleteCommunityRecursively = functions.https.onCall(async (data, context) => {
+export const deleteCommunityRecursively = functions.https.onCall(async (data: any, context: any) => {
   // Verify authentication
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
@@ -112,7 +135,7 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       .collection('members')
       .get();
     
-    membersSnapshot.docs.forEach(doc => {
+    membersSnapshot.docs.forEach((doc: any) => {
       batch.delete(doc.ref);
     });
 
@@ -123,7 +146,7 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       .collection('roles')
       .get();
     
-    rolesSnapshot.docs.forEach(doc => {
+    rolesSnapshot.docs.forEach((doc: any) => {
       batch.delete(doc.ref);
     });
 
@@ -139,8 +162,8 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       const messagesSnapshot = await channelDoc.ref
         .collection('messages')
         .get();
-      
-      messagesSnapshot.docs.forEach(messageDoc => {
+
+      messagesSnapshot.docs.forEach((messageDoc: any) => {
         batch.delete(messageDoc.ref);
       });
 
@@ -155,7 +178,7 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       .collection('resources')
       .get();
     
-    resourcesSnapshot.docs.forEach(doc => {
+    resourcesSnapshot.docs.forEach((doc: any) => {
       batch.delete(doc.ref);
     });
 
@@ -165,8 +188,8 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       .doc(communityId)
       .collection('events')
       .get();
-    
-    eventsSnapshot.docs.forEach(doc => {
+
+    eventsSnapshot.docs.forEach((doc: any) => {
       batch.delete(doc.ref);
     });
 
@@ -176,8 +199,8 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       .doc(communityId)
       .collection('announcements')
       .get();
-    
-    announcementsSnapshot.docs.forEach(doc => {
+
+    announcementsSnapshot.docs.forEach((doc: any) => {
       batch.delete(doc.ref);
     });
 
@@ -186,8 +209,8 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
       .collection('joinRequests')
       .where('communityId', '==', communityId)
       .get();
-    
-    joinRequestsSnapshot.docs.forEach(doc => {
+
+    joinRequestsSnapshot.docs.forEach((doc: any) => {
       batch.delete(doc.ref);
     });
 
@@ -204,7 +227,7 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
 
       if (files.length > 0) {
         console.log(`🗂️ Deleting ${files.length} files from Storage`);
-        await Promise.all(files.map(file => file.delete()));
+        await Promise.all(files.map((file: any) => file.delete()));
         console.log(`✅ Storage files deleted for community: ${communityId}`);
       } else {
         console.log(`📁 No storage files found for community: ${communityId}`);
@@ -235,7 +258,7 @@ export const deleteCommunityRecursively = functions.https.onCall(async (data, co
  * Get analytics data for Super Admin dashboard
  * Only callable by Super Admin users
  */
-export const getSuperAdminAnalytics = functions.https.onCall(async (data, context) => {
+export const getSuperAdminAnalytics = functions.https.onCall(async (data: any, context: any) => {
   // Verify authentication
   if (!context.auth) {
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
@@ -283,7 +306,7 @@ export const getSuperAdminAnalytics = functions.https.onCall(async (data, contex
     try {
       const bucket = storage.bucket();
       const [files] = await bucket.getFiles({ prefix: 'resources/' });
-      storageUsage = files.reduce((total, file) => {
+      storageUsage = files.reduce((total: any, file: any) => {
         return total + (file.metadata.size ? parseInt(file.metadata.size) : 0);
       }, 0) / (1024 * 1024); // Convert to MB
     } catch (storageError) {
@@ -292,7 +315,7 @@ export const getSuperAdminAnalytics = functions.https.onCall(async (data, contex
 
     // Get top active communities
     const topActiveCommunities = communitiesSnapshot.docs
-      .map(doc => {
+      .map((doc: any) => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -302,7 +325,7 @@ export const getSuperAdminAnalytics = functions.https.onCall(async (data, contex
           resourceCount: data.resourceCount || 0
         };
       })
-      .sort((a, b) => (b.memberCount + b.messageCount + b.resourceCount) - (a.memberCount + a.messageCount + a.resourceCount))
+      .sort((a: any, b: any) => (b.memberCount + b.messageCount + b.resourceCount) - (a.memberCount + a.messageCount + a.resourceCount))
       .slice(0, 5);
 
     const analytics = {

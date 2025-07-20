@@ -15,6 +15,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useSuperAdminStore } from '../../../store/superAdminStore';
+import { useAuthStore } from '../../../store/authStore';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { collection, query, where, getDocs, orderBy, limit, Timestamp } from 'firebase/firestore';
 import { db } from '../../../lib/firebase';
@@ -37,16 +38,29 @@ interface CommunityInsight {
 }
 
 export const AdminDashboard: React.FC = () => {
-  const { analytics, loading, error, loadAnalytics } = useSuperAdminStore();
+  const { analytics, loading, error, loadAnalytics, isUserReady } = useSuperAdminStore();
+  const { user, isSuperAdmin } = useAuthStore();
   const [activityData, setActivityData] = useState<ActivityData[]>([]);
   const [communityInsights, setCommunityInsights] = useState<CommunityInsight[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
   const [loadingInsights, setLoadingInsights] = useState(false);
 
-  // Load analytics data
+  // Load analytics data only when user is ready
   useEffect(() => {
-    loadAnalytics();
-  }, [loadAnalytics]);
+    const checkAndLoadAnalytics = async () => {
+      const userReady = await isUserReady();
+      if (userReady) {
+        console.log('🔐 [ADMIN_DASHBOARD] User is ready, loading analytics...');
+        loadAnalytics();
+      } else {
+        console.log('⚠️ [ADMIN_DASHBOARD] User not ready yet, waiting...', { user: !!user, isSuperAdmin });
+      }
+    };
+
+    // Add a small delay to ensure auth state is settled
+    const timer = setTimeout(checkAndLoadAnalytics, 1000);
+    return () => clearTimeout(timer);
+  }, [user, isSuperAdmin, loadAnalytics, isUserReady]);
 
   // Load real-time activity data
   const loadActivityData = async () => {

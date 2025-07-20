@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, CommunityRole } from '../types';
+import { User, CommunityRole, Community } from '../types';
 
 // Community-only authorization helper functions
 
@@ -20,6 +20,23 @@ export const hasCommunityRole = (
 // Check if user is community admin
 export const isCommunityAdmin = (user: User | null, communityId: string): boolean => {
   return hasCommunityRole(user, communityId, ['community_admin']);
+};
+
+// Enhanced version that also checks if user is community creator
+export const isCommunityAdminEnhanced = (
+  user: User | null,
+  communityId: string,
+  community?: Community | null
+): boolean => {
+  if (!user) return false;
+
+  // Check role-based admin status
+  const hasAdminRole = hasCommunityRole(user, communityId, ['community_admin']);
+
+  // Check if user is the community creator
+  const isCreator = community ? user.uid === community.createdBy : false;
+
+  return hasAdminRole || isCreator;
 };
 
 // Check if user is community moderator or higher

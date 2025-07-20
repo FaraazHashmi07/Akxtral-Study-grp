@@ -21,7 +21,8 @@ export const AdminCommunities: React.FC = () => {
     communitySearchQuery,
     setCommunitySearchQuery,
     loadCommunities,
-    deleteCommunity
+    deleteCommunity,
+    openModal
   } = useSuperAdminStore();
 
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
@@ -45,6 +46,11 @@ export const AdminCommunities: React.FC = () => {
     if (window.confirm('Are you sure you want to delete this community? This action cannot be undone.')) {
       await deleteCommunity(communityId);
     }
+  };
+
+  const handleViewCommunity = (community: any) => {
+    console.log('👁️ [ADMIN] Opening community detail modal for:', community.name);
+    openModal('communityDetail', { community });
   };
 
   if (loading) {
@@ -142,7 +148,7 @@ export const AdminCommunities: React.FC = () => {
                       {community.description}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-500">
-                      Created by: {community.creatorEmail}
+                      Created by: {community.creatorName || 'Unknown'} ({community.creatorEmail})
                     </p>
                   </div>
                 </div>
@@ -172,7 +178,7 @@ export const AdminCommunities: React.FC = () => {
                   </span>
                   <div className="flex space-x-2">
                     <button
-                      onClick={() => console.log('View community:', community.id)}
+                      onClick={() => handleViewCommunity(community)}
                       className="p-2 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
                       title="View Details"
                     >

@@ -62,6 +62,7 @@ export interface SuperAdminCommunityView {
   name: string;
   description: string;
   creatorEmail: string;
+  creatorName?: string;
   creatorUid: string;
   createdAt: Date;
   memberCount: number;
@@ -150,17 +151,59 @@ export interface ChannelPermissions {
 
 export interface Message {
   id: string;
-  channelId: string;
   communityId: string;
   authorId: string;
+  authorName: string;
+  authorAvatar?: string;
   content: string;
-  type: 'text' | 'file' | 'image' | 'system';
-  attachments?: MessageAttachment[];
-  reactions?: MessageReaction[];
+  type: 'text' | 'resource' | 'system' | 'question';
+
+  // Threading support
   replyTo?: string; // Message ID for threaded replies
+  threadCount?: number; // Number of replies to this message
+  hasThread?: boolean; // Whether this message has a thread
+  threadName?: string; // Optional name for the thread
+
+  // Reply context for Discord-style reply display
+  replyToMessageId?: string; // ID of the message being replied to
+  replyToSenderName?: string; // Display name of the original sender
+  replyToMessageSnippet?: string; // First line/snippet of the original message
+
+  // Pinning support
+  isPinned?: boolean;
+  pinnedBy?: string;
+  pinnedAt?: Date;
+
+  // Q&A support
+  isQuestion?: boolean;
+  questionAnswers?: QuestionAnswer[];
+
+  // Resource attachment (references existing resource)
+  resourceAttachment?: {
+    resourceId: string;
+    resourceName: string;
+    resourceUrl: string;
+    resourceType: string;
+    uploadedBy: string;
+    uploadedByName: string;
+  };
+
+  // Reactions
+  reactions?: MessageReaction[];
+
+  // Metadata
   editedAt?: Date;
   createdAt: Date;
   mentions: string[]; // User IDs mentioned in message
+}
+
+export interface QuestionAnswer {
+  id: string;
+  authorId: string;
+  authorName: string;
+  content: string;
+  createdAt: Date;
+  reactions?: MessageReaction[];
 }
 
 export interface MessageAttachment {
@@ -179,8 +222,82 @@ export interface MessageReaction {
 
 export interface TypingIndicator {
   userId: string;
-  channelId: string;
+  userName: string;
+  communityId: string;
   timestamp: Date;
+}
+
+// ===== THREADS =====
+export interface ThreadMessage {
+  id: string;
+  parentMessageId: string; // ID of the original message this thread belongs to
+  communityId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string;
+  content: string;
+  type: 'text' | 'resource';
+
+  // Resource attachment (for thread messages)
+  resourceAttachment?: {
+    resourceId: string;
+    resourceName: string;
+    resourceUrl: string;
+    resourceType: string;
+    uploadedBy: string;
+    uploadedByName: string;
+  };
+
+  // Reactions
+  reactions?: MessageReaction[];
+
+  // Metadata
+  editedAt?: Date;
+  createdAt: Date;
+  mentions: string[]; // User IDs mentioned in message
+}
+
+export interface Thread {
+  id: string; // Same as parent message ID
+  parentMessageId: string;
+  communityId: string;
+  name?: string; // Optional thread name
+  createdBy: string;
+  createdAt: Date;
+  lastActivity: Date;
+  messageCount: number;
+  participants: string[]; // User IDs who have participated
+}
+
+// ===== CHAT STATE =====
+export interface ChatState {
+  // Messages per community
+  messages: Record<string, Message[]>; // communityId -> messages
+  pinnedMessages: Record<string, Message[]>; // communityId -> pinned messages
+
+  // Thread state
+  threads: Record<string, Thread>; // messageId -> thread info
+  threadMessages: Record<string, ThreadMessage[]>; // messageId -> thread messages
+  activeThread: string | null; // Currently open thread (messageId)
+  threadSidebarOpen: boolean;
+
+  // Real-time state
+  typingIndicators: TypingIndicator[];
+  loading: boolean;
+  error: string | null;
+
+  // Message composition
+  messageInput: string;
+  replyingTo: Message | null;
+  isQuestionMode: boolean;
+
+  // Thread composition
+  threadInput: string;
+  threadName: string;
+
+  // Pagination
+  hasMoreMessages: Record<string, boolean>; // communityId -> hasMore
+  lastMessageTimestamp: Record<string, Date>; // communityId -> lastTimestamp
 }
 
 // ===== ANNOUNCEMENTS =====
@@ -190,11 +307,30 @@ export interface Announcement {
   title: string;
   content: string; // Markdown content
   authorId: string;
+  authorName: string;
+  authorAvatar?: string;
   isPinned: boolean;
   isImportant: boolean;
+  attachments?: AnnouncementAttachment[];
   reactions?: MessageReaction[];
   createdAt: Date;
   updatedAt?: Date;
+}
+
+export interface AnnouncementAttachment {
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+}
+
+export interface AnnouncementReads {
+  userId: string;
+  communityId: string;
+  lastReadTimestamp: Date;
+  readAnnouncementIds: string[];
+  updatedAt: Date;
 }
 
 // ===== RESOURCES =====
@@ -210,6 +346,7 @@ export interface Resource {
   mimeType?: string;
   tags: string[];
   uploadedBy: string;
+  uploadedByName?: string; // Optional field for uploader's display name
   uploadedAt: Date;
   downloads: number;
   likes: string[]; // User IDs who liked
