@@ -84,11 +84,12 @@ service cloud.firestore {
         resource.data.createdBy == request.auth.uid ||
         // Super admin can update any community (full access)
         isSuperAdmin() ||
-        // Allow specific join-related field updates for any authenticated user
-        (request.resource.data.keys().hasOnly(['memberCount', 'lastActivity'])) ||
-        // Allow join request storage updates for any authenticated user
+        // Allow member count updates for direct join operations (any authenticated user)
+        (request.resource.data.keys().hasOnly(['memberCount', 'lastActivity']) &&
+         request.resource.data.memberCount > resource.data.memberCount) ||
+        // Allow join request storage updates (any authenticated user)
         (request.resource.data.keys().hasOnly(['pendingJoinRequests', 'pendingRequestsCount'])) ||
-        // Allow combined join operation updates (direct join with member count)
+        // Allow combined updates for join operations
         (request.resource.data.keys().hasOnly(['memberCount', 'lastActivity', 'pendingJoinRequests', 'pendingRequestsCount']))
       );
 

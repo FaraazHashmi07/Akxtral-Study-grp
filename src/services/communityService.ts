@@ -393,28 +393,58 @@ export const joinCommunity = async (
       throw new Error('You are already a member of this community');
     }
 
-    // Check if there's already a pending join request
+    // Check if there's already a pending join request (with fallback validation)
     try {
       console.log('🔍 [SERVICE] Checking for existing join requests...');
-      const existingRequestQuery = query(
-        joinRequestsRef,
-        where('userId', '==', userId),
-        where('communityId', '==', communityId),
-        where('status', '==', 'pending')
-      );
-      const existingRequest = await getDocs(existingRequestQuery);
 
-      if (!existingRequest.empty) {
-        console.log('⚠️ [SERVICE] User already has a pending join request:', existingRequest.docs.map(doc => doc.id));
-        throw new Error('You already have a pending join request for this community');
+      // Try the composite query first
+      try {
+        const existingRequestQuery = query(
+          joinRequestsRef,
+          where('userId', '==', userId),
+          where('communityId', '==', communityId),
+          where('status', '==', 'pending')
+        );
+        const existingRequest = await getDocs(existingRequestQuery);
+
+        if (!existingRequest.empty) {
+          console.log('⚠️ [SERVICE] User already has a pending join request (composite query):', existingRequest.docs.map(doc => doc.id));
+          throw new Error('You already have a pending join request for this community');
+        }
+        console.log('✅ [SERVICE] No existing pending join requests found (composite query)');
+      } catch (compositeQueryError) {
+        console.warn('⚠️ [SERVICE] Composite query failed, trying fallback approach:', compositeQueryError);
+
+        // Fallback: Use simpler query and filter in memory
+        const allUserRequestsQuery = query(
+          joinRequestsRef,
+          where('userId', '==', userId),
+          where('communityId', '==', communityId)
+        );
+        const allUserRequests = await getDocs(allUserRequestsQuery);
+
+        // Check if any of the requests are pending
+        const pendingRequests = allUserRequests.docs.filter(doc => {
+          const data = doc.data();
+          return data.status === 'pending';
+        });
+
+        if (pendingRequests.length > 0) {
+          console.log('⚠️ [SERVICE] User already has a pending join request (fallback query):', pendingRequests.map(doc => doc.id));
+          throw new Error('You already have a pending join request for this community');
+        }
+        console.log('✅ [SERVICE] No existing pending join requests found (fallback query)');
       }
-      console.log('✅ [SERVICE] No existing join requests found');
     } catch (queryError) {
       if (queryError instanceof Error && queryError.message.includes('pending join request')) {
         // Re-throw our custom error
         throw queryError;
       }
       console.error('❌ [SERVICE] Error checking existing join requests:', queryError);
+      console.error('❌ [SERVICE] Query error details:', {
+        error: queryError,
+        errorCode: (queryError as any)?.code
+      });
       // Continue with join request creation if query fails
       console.log('⚠️ [SERVICE] Proceeding with join request creation despite query error');
     }
@@ -484,12 +514,18 @@ export const joinCommunity = async (
             status: 'pending'
           });
 
-          // Update the community document
-          await updateDoc(communityDocRef, {
+          // Update only the join request fields
+          const updateData = {
             pendingJoinRequests: pendingRequests,
             pendingRequestsCount: pendingRequests.length
+          };
+
+          console.log('📋 [SERVICE] Updating community document with join request data:', {
+            communityId,
+            updateData: { ...updateData, pendingJoinRequests: `[${pendingRequests.length} requests]` }
           });
 
+          await updateDoc(communityDocRef, updateData);
           console.log('✅ [SERVICE] Join request also stored in community document');
         }
       } catch (error) {
@@ -498,10 +534,12 @@ export const joinCommunity = async (
           error,
           errorCode: (error as any)?.code,
           communityId,
-          userId
+          userId,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
         });
         // Don't fail the whole operation if this fails - the join request was still created
         console.log('⚠️ [SERVICE] Join request was created successfully, but community document update failed');
+        console.log('ℹ️ [SERVICE] Admins can still see the request in the joinRequests collection');
       }
 
       // Verify the document was created by reading it back
@@ -514,12 +552,7 @@ export const joinCommunity = async (
     } else {
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
 
-      // Use atomic transaction to prevent ghost membership state
-      console.log('🔥 [SERVICE] Preparing atomic batch transaction for direct join...');
-      const batch = writeBatch(db);
-
-      // Create membership document
-      const membershipRef = doc(membersRef);
+      // Create membership document first
       const membershipData = {
         uid: userId,
         communityId,
@@ -532,29 +565,36 @@ export const joinCommunity = async (
         photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
       };
 
-      console.log('📋 [SERVICE] Adding membership document to batch:', {
-        membershipRef: membershipRef.path,
+      console.log('📋 [SERVICE] Creating membership document:', {
         membershipData: { ...membershipData, joinedAt: '[serverTimestamp]', lastActive: '[serverTimestamp]' }
       });
-      batch.set(membershipRef, membershipData);
 
-      // Update community member count
-      const communityRef = doc(communitiesRef, communityId);
-      const communityUpdateData = {
-        memberCount: (communityData.memberCount || 0) + 1,
-        lastActivity: serverTimestamp()
-      };
+      // Create membership document
+      await addDoc(membersRef, membershipData);
+      console.log('✅ [SERVICE] Membership document created successfully');
 
-      console.log('📋 [SERVICE] Adding community update to batch:', {
-        communityRef: communityRef.path,
-        updateData: { ...communityUpdateData, lastActivity: '[serverTimestamp]' }
-      });
-      batch.update(communityRef, communityUpdateData);
+      // Update community member count (separate operation to avoid permission conflicts)
+      try {
+        const communityRef = doc(communitiesRef, communityId);
+        const communityUpdateData = {
+          memberCount: (communityData.memberCount || 0) + 1,
+          lastActivity: serverTimestamp()
+        };
 
-      // Execute atomic transaction
-      console.log('🔥 [SERVICE] Executing atomic batch commit for direct join...');
-      await batch.commit();
-      console.log('✅ [SERVICE] User joined community successfully (atomic transaction)');
+        console.log('📊 [SERVICE] Updating community member count:', {
+          communityRef: communityRef.path,
+          updateData: { ...communityUpdateData, lastActivity: '[serverTimestamp]' }
+        });
+
+        await updateDoc(communityRef, communityUpdateData);
+        console.log('✅ [SERVICE] Community member count updated successfully');
+      } catch (countUpdateError) {
+        console.warn('⚠️ [SERVICE] Failed to update community member count:', countUpdateError);
+        // Don't fail the whole operation if member count update fails
+        // The user is still successfully joined
+      }
+
+      console.log('✅ [SERVICE] User joined community successfully');
     }
   } catch (error) {
     console.error('❌ [SERVICE] Error joining community:', error);
