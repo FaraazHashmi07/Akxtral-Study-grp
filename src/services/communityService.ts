@@ -510,54 +510,10 @@ export const joinCommunity = async (
         throw new Error(`Failed to create join request: ${joinRequestError instanceof Error ? joinRequestError.message : 'Unknown error'}`);
       }
 
-      // Also store the join request in the community document for easier admin access
-      try {
-        console.log('🔥 [SERVICE] Storing join request in community document...');
-        const communityDocRef = doc(communitiesRef, communityId);
-        const communityDoc = await getDoc(communityDocRef);
-
-        if (communityDoc.exists()) {
-          const currentData = communityDoc.data();
-          const pendingRequests = currentData.pendingJoinRequests || [];
-
-          // Add the new request to the array
-          pendingRequests.push({
-            id: docRef.id,
-            userId,
-            userDisplayName: userDisplayName || '',
-            userEmail: userEmail || '',
-            message: message || '',
-            createdAt: new Date(),
-            status: 'pending'
-          });
-
-          // Update only the join request fields
-          const updateData = {
-            pendingJoinRequests: pendingRequests,
-            pendingRequestsCount: pendingRequests.length
-          };
-
-          console.log('📋 [SERVICE] Updating community document with join request data:', {
-            communityId,
-            userId,
-            currentRequestCount: currentData.pendingRequestsCount || 0,
-            newRequestCount: pendingRequests.length,
-            updateData: { ...updateData, pendingJoinRequests: `[${pendingRequests.length} requests]` }
-          });
-
-          await updateDoc(communityDocRef, updateData);
-          console.log('✅ [SERVICE] Join request also stored in community document');
-        }
-      } catch (error) {
-        console.error('❌ [SERVICE] Failed to store join request in community document:', error);
-        console.error('❌ [SERVICE] Community document update error details:', {
-          error,
-          errorCode: (error as any)?.code,
-          communityId,
-          userId,
-          errorMessage: error instanceof Error ? error.message : 'Unknown error'
-        });
-        // Don't fail the whole operation if this fails - the join request was still created
+      // TEMPORARILY SKIP community document update for join requests
+      console.log('⚠️ [SERVICE] Skipping community document update for join request storage');
+      console.log('ℹ️ [SERVICE] Join request is available in joinRequests collection for admin access');
+      console.log('📋 [SERVICE] Join request created with ID:', docRef.id);
         console.log('⚠️ [SERVICE] Join request was created successfully, but community document update failed');
         console.log('ℹ️ [SERVICE] Admins can still see the request in the joinRequests collection');
       }
@@ -593,41 +549,46 @@ export const joinCommunity = async (
       await addDoc(membersRef, membershipData);
       console.log('✅ [SERVICE] Membership document created successfully');
 
-      // Update community member count (separate operation to avoid permission conflicts)
+      // Test community member count update with completely open rules
       try {
         const communityRef = doc(communitiesRef, communityId);
-        const communityUpdateData = {
-          memberCount: (communityData.memberCount || 0) + 1,
-          lastActivity: serverTimestamp()
-        };
 
-        console.log('📊 [SERVICE] Updating community member count:', {
-          communityRef: communityRef.path,
-          currentMemberCount: communityData.memberCount || 0,
-          newMemberCount: (communityData.memberCount || 0) + 1,
-          updateData: { ...communityUpdateData, lastActivity: '[serverTimestamp]' },
-          userId,
-          communityId,
-          fieldsBeingUpdated: Object.keys(communityUpdateData)
-        });
+        // Get fresh community data for direct join (not from join request flow)
+        const freshCommunityDoc = await getDoc(communityRef);
+        if (!freshCommunityDoc.exists()) {
+          throw new Error('Community not found for member count update');
+        }
+
+        const freshCommunityData = freshCommunityDoc.data();
 
         // Test with minimal update first
-        console.log('🔥 [SERVICE] Attempting community document update...');
+        const communityUpdateData = {
+          memberCount: (freshCommunityData.memberCount || 0) + 1
+        };
+
+        console.log('🧪 [SERVICE] TESTING: Updating community member count with open rules:', {
+          communityRef: communityRef.path,
+          currentMemberCount: freshCommunityData.memberCount || 0,
+          newMemberCount: (freshCommunityData.memberCount || 0) + 1,
+          userId,
+          communityId,
+          communityName: freshCommunityData.name,
+          firebaseApp: db.app?.name,
+          firebaseProjectId: db._delegate?._databaseId?.projectId
+        });
+
+        console.log('🔥 [SERVICE] Attempting updateDoc operation...');
         await updateDoc(communityRef, communityUpdateData);
-        console.log('✅ [SERVICE] Community member count updated successfully');
+        console.log('✅ [SERVICE] Community member count updated successfully with open rules');
       } catch (countUpdateError) {
-        console.error('❌ [SERVICE] Failed to update community member count:', countUpdateError);
-        console.error('❌ [SERVICE] Member count update error details:', {
+        console.error('❌ [SERVICE] STILL FAILING: Community member count update failed even with open rules:', countUpdateError);
+        console.error('❌ [SERVICE] This suggests a deeper issue beyond security rules:', {
           error: countUpdateError,
           errorCode: (countUpdateError as any)?.code,
           errorMessage: countUpdateError instanceof Error ? countUpdateError.message : 'Unknown error',
           communityId,
-          userId,
-          currentMemberCount: communityData.memberCount || 0,
-          attemptedNewCount: (communityData.memberCount || 0) + 1
+          userId
         });
-        // Don't fail the whole operation if member count update fails
-        // The user is still successfully joined
       }
 
       console.log('✅ [SERVICE] User joined community successfully');

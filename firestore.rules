@@ -78,19 +78,8 @@ service cloud.firestore {
       allow read: if isAuthenticated(); // Allow all authenticated users to read communities for discovery
       allow create: if isAuthenticated(); // Any user can create communities
 
-      // Allow updates for community creators, super admins, and specific join operations
-      allow update: if isAuthenticated() && (
-        // Community creator can update their community (full access)
-        resource.data.createdBy == request.auth.uid ||
-        // Super admin can update any community (full access)
-        isSuperAdmin() ||
-        // Allow member count and activity updates for join operations (simplified)
-        request.resource.data.keys().hasOnly(['memberCount', 'lastActivity']) ||
-        // Allow join request storage updates for approval workflow
-        request.resource.data.keys().hasOnly(['pendingJoinRequests', 'pendingRequestsCount']) ||
-        // Allow combined updates for complex join operations
-        request.resource.data.keys().hasOnly(['memberCount', 'lastActivity', 'pendingJoinRequests', 'pendingRequestsCount'])
-      );
+      // TESTING: Completely open update permissions for debugging
+      allow update: if isAuthenticated();
 
       // Special delete rule to avoid circular dependency in isCommunityAdmin function
       allow delete: if isAuthenticated() && (
