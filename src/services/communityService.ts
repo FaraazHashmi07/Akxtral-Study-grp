@@ -663,10 +663,10 @@ export const removeCommunityMember = async (
 
     // Update community member count
     const communityRef = doc(communitiesRef, communityId);
-    const communityDoc = await getDoc(communityRef);
+    const communityDocForUpdate = await getDoc(communityRef);
 
-    if (communityDoc.exists()) {
-      const currentCount = communityDoc.data().memberCount || 0;
+    if (communityDocForUpdate.exists()) {
+      const currentCount = communityDocForUpdate.data().memberCount || 0;
       await updateDoc(communityRef, {
         memberCount: Math.max(0, currentCount - 1),
         lastActivity: serverTimestamp()
