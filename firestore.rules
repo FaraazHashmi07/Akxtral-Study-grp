@@ -201,19 +201,47 @@ service cloud.firestore {
     // Join requests - for community approval workflow
     match /joinRequests/{requestId} {
       // Users can create join requests for themselves
-      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+      allow create: if isAuthenticated() &&
+                    request.auth.uid == request.resource.data.userId &&
+                    request.resource.data.communityId != null;
 
-      // Users can read their own join requests
-      allow read: if isAuthenticated() && (request.auth.uid == resource.data.userId || isSuperAdmin());
+      // Users can read their own join requests, community creators/admins can read requests for their communities
+      allow read: if isAuthenticated() && (
+        // User can read their own requests
+        request.auth.uid == resource.data.userId ||
+        // Community creator can read requests
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.createdBy == request.auth.uid) ||
+        // User with admin role can read requests
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)).data.role == 'community_admin') ||
+        // Super admin can read all requests
+        isSuperAdmin()
+      );
 
-      // Community admins can read all join requests for their communities
-      allow read: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
+      // Community creators/admins can update join requests (approve/reject)
+      allow update: if isAuthenticated() && (
+        // Community creator can update requests
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.createdBy == request.auth.uid) ||
+        // User with admin role can update requests
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)).data.role == 'community_admin') ||
+        // Super admin can update requests
+        isSuperAdmin()
+      );
 
-      // Community admins can update join requests (approve/reject)
-      allow update: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
-
-      // Community admins can delete join requests
-      allow delete: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
+      // Community creators/admins can delete join requests
+      allow delete: if isAuthenticated() && (
+        // Community creator can delete requests
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.createdBy == request.auth.uid) ||
+        // User with admin role can delete requests
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)).data.role == 'community_admin') ||
+        // Super admin can delete requests
+        isSuperAdmin()
+      );
 
       // Allow querying for authenticated users (application logic will filter by community)
       allow list: if isAuthenticated();
@@ -224,17 +252,34 @@ service cloud.firestore {
       // Allow all authenticated users to read community memberships (needed for UI)
       allow read: if isAuthenticated();
 
-      // Community admins can manage memberships
-      allow write: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
+      // Users can create their own membership when joining (direct join)
+      allow create: if isAuthenticated() &&
+                    request.auth.uid == request.resource.data.uid &&
+                    request.resource.data.communityId != null;
 
-      // Users can create their own membership when joining
-      allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
+      // Allow updates for community creators, admins, and super admins
+      allow update: if isAuthenticated() && (
+        // Community creator can manage memberships
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.createdBy == request.auth.uid) ||
+        // User with admin role can manage memberships
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)).data.role == 'community_admin') ||
+        // Super admin can manage memberships
+        isSuperAdmin()
+      );
 
-      // Allow updates for admins and super admins
-      allow update: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
-
-      // Allow deletion for admins and super admins
-      allow delete: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
+      // Allow deletion for community creators, admins, and super admins
+      allow delete: if isAuthenticated() && (
+        // Community creator can remove members
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)).data.createdBy == request.auth.uid) ||
+        // User with admin role can remove members
+        (exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)).data.role == 'community_admin') ||
+        // Super admin can remove members
+        isSuperAdmin()
+      );
     }
 
     // Typing indicators (temporary documents)

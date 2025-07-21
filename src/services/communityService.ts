@@ -421,6 +421,7 @@ export const joinCommunity = async (
       };
 
       console.log('📋 [SERVICE] Join request data to be written:', joinRequestData);
+      console.log('📋 [SERVICE] Writing to collection path: joinRequests');
 
       // Create join request
       const docRef = await addDoc(joinRequestsRef, joinRequestData);
@@ -469,8 +470,8 @@ export const joinCommunity = async (
       }
     } else {
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
-      // Join directly - include user profile data for easier access
-      await addDoc(membersRef, {
+
+      const membershipData = {
         uid: userId,
         communityId,
         role: 'community_member',
@@ -480,9 +481,16 @@ export const joinCommunity = async (
         email: userEmail || '',
         displayName: userDisplayName || '',
         photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
-      });
+      };
+
+      console.log('📋 [SERVICE] Creating membership document:', membershipData);
+
+      // Join directly - include user profile data for easier access
+      await addDoc(membersRef, membershipData);
+      console.log('✅ [SERVICE] Membership document created successfully');
 
       // Update member count
+      console.log('📊 [SERVICE] Updating community member count...');
       await updateDoc(doc(communitiesRef, communityId), {
         memberCount: (communityData.memberCount || 0) + 1,
         lastActivity: serverTimestamp()
@@ -491,6 +499,13 @@ export const joinCommunity = async (
     }
   } catch (error) {
     console.error('❌ [SERVICE] Error joining community:', error);
+    console.error('❌ [SERVICE] Error details:', {
+      error,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      errorCode: (error as any)?.code,
+      communityId,
+      userId
+    });
     throw error; // Re-throw the original error to preserve the message
   }
 };
