@@ -1,17 +1,18 @@
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  getDocs, 
+import {
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs,
   getDoc,
-  query, 
-  where, 
-  orderBy, 
+  query,
+  where,
+  orderBy,
   limit,
   serverTimestamp,
-  Timestamp 
+  Timestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Community, CommunityMember, JoinRequest, CommunityFilter } from '../types';
@@ -358,6 +359,23 @@ export const getUserCommunities = async (userId: string): Promise<Community[]> =
   }
 };
 
+// Helper function to check if user is already a member
+const checkExistingMembership = async (communityId: string, userId: string): Promise<boolean> => {
+  try {
+    const existingMembershipQuery = query(
+      membersRef,
+      where('uid', '==', userId),
+      where('communityId', '==', communityId)
+    );
+    const existingMembership = await getDocs(existingMembershipQuery);
+    return !existingMembership.empty;
+  } catch (error) {
+    console.error('❌ [SERVICE] Error checking existing membership:', error);
+    // If we can't check, assume not a member to allow the join attempt
+    return false;
+  }
+};
+
 export const joinCommunity = async (
   communityId: string,
   userId: string,
@@ -368,15 +386,9 @@ export const joinCommunity = async (
   try {
     console.log('🤝 [SERVICE] Join community request:', { communityId, userId });
 
-    // First, check if user is already a member
-    const existingMembershipQuery = query(
-      membersRef,
-      where('uid', '==', userId),
-      where('communityId', '==', communityId)
-    );
-    const existingMembership = await getDocs(existingMembershipQuery);
-
-    if (!existingMembership.empty) {
+    // First, check if user is already a member with better error handling
+    const isAlreadyMember = await checkExistingMembership(communityId, userId);
+    if (isAlreadyMember) {
       console.log('⚠️ [SERVICE] User is already a member of this community');
       throw new Error('You are already a member of this community');
     }
@@ -421,11 +433,17 @@ export const joinCommunity = async (
       };
 
       console.log('📋 [SERVICE] Join request data to be written:', joinRequestData);
-      console.log('📋 [SERVICE] Writing to collection path: joinRequests');
+      console.log('📋 [SERVICE] Target collection: joinRequests');
 
-      // Create join request
-      const docRef = await addDoc(joinRequestsRef, joinRequestData);
-      console.log('✅ [SERVICE] Join request created successfully with ID:', docRef.id);
+      // Create join request with error handling
+      let docRef;
+      try {
+        docRef = await addDoc(joinRequestsRef, joinRequestData);
+        console.log('✅ [SERVICE] Join request created successfully with ID:', docRef.id);
+      } catch (joinRequestError) {
+        console.error('❌ [SERVICE] Failed to create join request:', joinRequestError);
+        throw new Error(`Failed to create join request: ${joinRequestError instanceof Error ? joinRequestError.message : 'Unknown error'}`);
+      }
 
       // Also store the join request in the community document for easier admin access
       // This is a temporary workaround for security rules issues
@@ -471,6 +489,11 @@ export const joinCommunity = async (
     } else {
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
 
+      // Use atomic transaction to prevent ghost membership state
+      const batch = writeBatch(db);
+
+      // Create membership document
+      const membershipRef = doc(membersRef);
       const membershipData = {
         uid: userId,
         communityId,
@@ -483,19 +506,18 @@ export const joinCommunity = async (
         photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
       };
 
-      console.log('📋 [SERVICE] Creating membership document:', membershipData);
+      batch.set(membershipRef, membershipData);
 
-      // Join directly - include user profile data for easier access
-      await addDoc(membersRef, membershipData);
-      console.log('✅ [SERVICE] Membership document created successfully');
-
-      // Update member count
-      console.log('📊 [SERVICE] Updating community member count...');
-      await updateDoc(doc(communitiesRef, communityId), {
+      // Update community member count
+      const communityRef = doc(communitiesRef, communityId);
+      batch.update(communityRef, {
         memberCount: (communityData.memberCount || 0) + 1,
         lastActivity: serverTimestamp()
       });
-      console.log('✅ [SERVICE] User joined community successfully');
+
+      // Execute atomic transaction
+      await batch.commit();
+      console.log('✅ [SERVICE] User joined community successfully (atomic transaction)');
     }
   } catch (error) {
     console.error('❌ [SERVICE] Error joining community:', error);
@@ -506,6 +528,10 @@ export const joinCommunity = async (
       communityId,
       userId
     });
+
+    // Note: If this is a batch operation failure, Firestore automatically rolls back
+    // If this is a join request failure, no rollback needed as no membership was created
+
     throw error; // Re-throw the original error to preserve the message
   }
 };
