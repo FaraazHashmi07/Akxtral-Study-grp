@@ -29,6 +29,7 @@ import {
   increment
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { useAuthStore } from './authStore';
 
 // Helper function to extract mentions from message content
 const extractMentions = (content: string): string[] => {
@@ -923,7 +924,6 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
 
   // Start typing indicator
   startTyping: (communityId) => {
-    const { useAuthStore } = require('./authStore');
     const { user } = useAuthStore.getState();
 
     if (!user) return;
@@ -951,7 +951,6 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
 
   // Stop typing indicator
   stopTyping: (communityId) => {
-    const { useAuthStore } = require('./authStore');
     const { user } = useAuthStore.getState();
 
     if (!user) return;
