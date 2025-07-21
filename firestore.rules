@@ -78,7 +78,17 @@ service cloud.firestore {
       allow read: if isAuthenticated(); // Allow all authenticated users to read communities for discovery
       allow write: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       allow create: if isAuthenticated(); // Any user can create communities
-      allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
+
+      // Special delete rule to avoid circular dependency in isCommunityAdmin function
+      allow delete: if isAuthenticated() && (
+        // Allow if user is the community creator (direct check without function)
+        resource.data.createdBy == request.auth.uid ||
+        // Allow if user has admin role in roles subcollection
+        (exists(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)).data.role == 'community_admin') ||
+        // Allow super admins
+        isSuperAdmin()
+      );
       
       // Community roles subcollection
       match /roles/{uid} {
