@@ -100,36 +100,50 @@ service cloud.firestore {
 
       // Community messages (new structure - direct under community)
       match /messages/{messageId} {
-        // SIMPLIFIED: Allow all authenticated users to read/write messages for now
+        // Allow all authenticated users to read messages
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
 
-        // Allow updates for thread-related fields, reactions, and message edits
+        // Allow authenticated users to create messages with their own authorId
+        allow create: if isAuthenticated() &&
+                      request.resource.data.authorId == request.auth.uid &&
+                      request.resource.data.communityId == communityId;
+
+        // Simplified update rules to avoid function call issues
         allow update: if isAuthenticated() && (
-          // Original author can edit their message
-          (isOwner(resource.data.authorId) &&
+          // Original author can edit their message content
+          (resource.data.authorId == request.auth.uid &&
            request.resource.data.authorId == resource.data.authorId &&
            request.resource.data.communityId == resource.data.communityId) ||
-          // Any authenticated user can update thread-related fields
-          (request.resource.data.keys().hasAny(['hasThread', 'threadCount', 'threadName'])) ||
-          // Any authenticated user can update reactions
-          (request.resource.data.keys().hasOnly(['reactions'])) ||
-          // Any authenticated user can update question answers
-          (request.resource.data.keys().hasOnly(['questionAnswers'])) ||
-          // Community admins can pin messages
-          (isCommunityAdmin(communityId) &&
-           request.resource.data.keys().hasOnly(['isPinned', 'pinnedBy', 'pinnedAt']))
+          // Any authenticated user can update specific fields
+          (request.resource.data.keys().hasAny(['hasThread', 'threadCount', 'threadName', 'reactions', 'questionAnswers'])) ||
+          // Any authenticated user can pin/unpin (simplified for debugging)
+          (request.resource.data.keys().hasAny(['isPinned', 'pinnedBy', 'pinnedAt']))
         );
 
-        allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId) || isSuperAdmin());
+        // Simplified delete rule
+        allow delete: if isAuthenticated() && (
+          resource.data.authorId == request.auth.uid ||
+          isSuperAdmin()
+        );
 
         // Thread messages subcollection
         match /threads/{threadMessageId} {
-          // Allow authenticated users to read/write thread messages
+          // Allow authenticated users to read thread messages
           allow read: if isAuthenticated();
-          allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
-          allow update: if isAuthenticated() && isOwner(resource.data.authorId);
-          allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isCommunityModerator(communityId) || isSuperAdmin());
+
+          // Allow authenticated users to create thread messages with their own authorId
+          allow create: if isAuthenticated() &&
+                        request.resource.data.authorId == request.auth.uid &&
+                        request.resource.data.communityId == communityId;
+
+          // Allow original author to update their thread messages
+          allow update: if isAuthenticated() && resource.data.authorId == request.auth.uid;
+
+          // Allow original author or super admin to delete thread messages
+          allow delete: if isAuthenticated() && (
+            resource.data.authorId == request.auth.uid ||
+            isSuperAdmin()
+          );
         }
       }
 
