@@ -614,16 +614,33 @@ export const removeCommunityMember = async (
   try {
     console.log('🗑️ [SERVICE] Removing member:', memberUid, 'from community:', communityId, 'by admin:', adminUid);
 
-    // Verify admin permissions
-    const adminMemberQuery = query(
-      membersRef,
-      where('uid', '==', adminUid),
-      where('communityId', '==', communityId),
-      where('role', '==', 'community_admin')
-    );
-    const adminSnapshot = await getDocs(adminMemberQuery);
+    // Verify admin permissions - check if user is creator or has admin role
+    const communityDoc = await getDoc(doc(communitiesRef, communityId));
+    if (!communityDoc.exists()) {
+      throw new Error('Community not found');
+    }
 
-    if (adminSnapshot.empty) {
+    const communityData = communityDoc.data();
+    const isCreator = communityData.createdBy === adminUid;
+
+    // Check if user has admin role in the community
+    let hasAdminRole = false;
+    try {
+      const adminMemberQuery = query(
+        membersRef,
+        where('uid', '==', adminUid),
+        where('communityId', '==', communityId),
+        where('role', '==', 'community_admin')
+      );
+      const adminSnapshot = await getDocs(adminMemberQuery);
+      hasAdminRole = !adminSnapshot.empty;
+    } catch (roleError) {
+      console.warn('⚠️ [SERVICE] Could not check admin role in members collection:', roleError);
+    }
+
+    const isAdmin = isCreator || hasAdminRole;
+
+    if (!isAdmin) {
       throw new Error('You do not have permission to remove members from this community');
     }
 
@@ -949,7 +966,20 @@ export const deleteCommunity = async (communityId: string, adminUserId: string):
     }
 
     const communityData = communityDoc.data();
-    const isAdmin = communityData.createdBy === adminUserId;
+
+    // Check if user is the community creator
+    const isCreator = communityData.createdBy === adminUserId;
+
+    // Check if user has admin role in the community
+    let hasAdminRole = false;
+    try {
+      const roleDoc = await getDoc(doc(db, 'communities', communityId, 'roles', adminUserId));
+      hasAdminRole = roleDoc.exists() && roleDoc.data()?.role === 'community_admin';
+    } catch (roleError) {
+      console.warn('⚠️ [SERVICE] Could not check admin role:', roleError);
+    }
+
+    const isAdmin = isCreator || hasAdminRole;
 
     if (!isAdmin) {
       throw new Error('Only community administrators can delete communities');

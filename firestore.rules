@@ -186,6 +186,9 @@ service cloud.firestore {
 
       // Community admins can delete join requests
       allow delete: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
+
+      // Allow querying for authenticated users (application logic will filter by community)
+      allow list: if isAuthenticated();
     }
 
     // Community members collection - SIMPLIFIED: Allow authenticated users to read memberships
