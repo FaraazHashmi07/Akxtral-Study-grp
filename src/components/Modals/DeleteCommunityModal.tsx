@@ -31,13 +31,7 @@ export const DeleteCommunityModal: React.FC<DeleteCommunityModalProps> = ({
     setIsDeleting(true);
     
     try {
-      console.log('🗑️ [MODAL] Deleting community:', {
-        communityName,
-        communityId,
-        communityIdType: typeof communityId,
-        communityIdLength: communityId?.length,
-        userId: user?.uid
-      });
+      console.log('🗑️ [MODAL] Deleting community:', communityName);
 
       await deleteCommunity(communityId);
       

@@ -954,48 +954,12 @@ const createUserNotification = async (
   }
 };
 
-// Helper function to verify community exists and get its data
-const getCommunityForDeletion = async (communityId: string) => {
-  console.log('🔍 [SERVICE] Verifying community exists for deletion:', communityId);
 
-  // Try multiple approaches to ensure we can access the document
-  const communityDocRef = doc(communitiesRef, communityId);
-  console.log('📋 [SERVICE] Document reference path:', communityDocRef.path);
-
-  // First, try to get the document directly
-  const communityDoc = await getDoc(communityDocRef);
-  console.log('📋 [SERVICE] Direct document fetch result:', {
-    exists: communityDoc.exists(),
-    id: communityDoc.id,
-    path: communityDoc.ref.path
-  });
-
-  if (!communityDoc.exists()) {
-    // Try to query the collection to see if the document exists there
-    console.log('🔍 [SERVICE] Document not found directly, trying collection query...');
-    const querySnapshot = await getDocs(query(communitiesRef, where('__name__', '==', communityId)));
-    console.log('🔍 [SERVICE] Collection query result:', {
-      empty: querySnapshot.empty,
-      size: querySnapshot.size
-    });
-
-    if (querySnapshot.empty) {
-      throw new Error(`Community not found: ${communityId}. The community may have been deleted or the ID is incorrect.`);
-    }
-  }
-
-  return communityDoc;
-};
 
 // Delete a community and all associated data
 export const deleteCommunity = async (communityId: string, adminUserId: string): Promise<void> => {
   try {
-    console.log('🗑️ [SERVICE] Starting community deletion:', {
-      communityId,
-      adminUserId,
-      communityIdType: typeof communityId,
-      communityIdLength: communityId?.length
-    });
+    console.log('🗑️ [SERVICE] Starting community deletion:', communityId);
 
     // Validate input parameters
     if (!communityId || typeof communityId !== 'string' || communityId.trim() === '') {
@@ -1006,48 +970,27 @@ export const deleteCommunity = async (communityId: string, adminUserId: string):
       throw new Error('Invalid admin user ID provided');
     }
 
-    // First, verify the community exists and get its data
-    const communityDoc = await getCommunityForDeletion(communityId);
+    // Get the community document for admin verification
+    const communityDoc = await getDoc(doc(communitiesRef, communityId));
+    if (!communityDoc.exists()) {
+      throw new Error('Community not found');
+    }
 
     const communityData = communityDoc.data();
-    console.log('📋 [SERVICE] Community data retrieved:', {
-      name: communityData?.name,
-      createdBy: communityData?.createdBy,
-      memberCount: communityData?.memberCount
-    });
 
     // Check if user is the community creator
     const isCreator = communityData.createdBy === adminUserId;
-    console.log('👤 [SERVICE] Creator check:', {
-      isCreator,
-      communityCreatedBy: communityData.createdBy,
-      adminUserId
-    });
 
     // Check if user has admin role in the community
     let hasAdminRole = false;
     try {
-      console.log('🔍 [SERVICE] Checking admin role in roles subcollection...');
-      const roleDocRef = doc(db, 'communities', communityId, 'roles', adminUserId);
-      console.log('🔍 [SERVICE] Role document path:', roleDocRef.path);
-
-      const roleDoc = await getDoc(roleDocRef);
-      console.log('🔍 [SERVICE] Role document result:', {
-        exists: roleDoc.exists(),
-        data: roleDoc.exists() ? roleDoc.data() : null
-      });
-
+      const roleDoc = await getDoc(doc(db, 'communities', communityId, 'roles', adminUserId));
       hasAdminRole = roleDoc.exists() && roleDoc.data()?.role === 'community_admin';
     } catch (roleError) {
       console.warn('⚠️ [SERVICE] Could not check admin role:', roleError);
     }
 
     const isAdmin = isCreator || hasAdminRole;
-    console.log('🔐 [SERVICE] Final admin verification:', {
-      isCreator,
-      hasAdminRole,
-      isAdmin
-    });
 
     if (!isAdmin) {
       throw new Error('Only community administrators can delete communities');
