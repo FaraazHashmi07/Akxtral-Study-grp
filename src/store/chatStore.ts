@@ -18,6 +18,7 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  setDoc,
   where,
   Timestamp,
   serverTimestamp,
@@ -312,6 +313,13 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
         ...replyContext
       };
 
+      console.log('🔥 [CHAT] Attempting to send message to Firestore:', {
+        communityId,
+        authorId: user.uid,
+        messageType: messageData.type,
+        collectionPath: `communities/${communityId}/messages`
+      });
+
       // Send to Firestore (this will trigger real-time listener to replace optimistic message)
       await addDoc(messagesRef, messageData);
 
@@ -333,6 +341,14 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
       }, 1000); // Small delay to ensure Firestore listener has processed
     } catch (error) {
       console.error('❌ [CHAT] Failed to send message:', error);
+      console.error('❌ [CHAT] Error details:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        errorCode: (error as any)?.code,
+        communityId,
+        userId: user.uid,
+        collectionPath: `communities/${communityId}/messages`
+      });
 
       // 🔄 ROLLBACK: Remove optimistic message on failure
       const rollbackMessages = messages[communityId]?.filter(msg => msg.id !== optimisticId) || [];
@@ -930,19 +946,14 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
 
     try {
       const typingRef = doc(db, 'typing', communityId, 'indicators', user.uid);
-      updateDoc(typingRef, {
+      // Use setDoc with merge to create or update the document
+      setDoc(typingRef, {
         userId: user.uid,
-        userName: user.displayName,
+        userName: user.displayName || 'Anonymous',
         communityId,
         timestamp: serverTimestamp()
-      }).catch(() => {
-        // Document might not exist, create it
-        addDoc(collection(db, 'typing', communityId, 'indicators'), {
-          userId: user.uid,
-          userName: user.displayName,
-          communityId,
-          timestamp: serverTimestamp()
-        });
+      }, { merge: true }).catch((error) => {
+        console.error('Failed to set typing indicator:', error);
       });
     } catch (error) {
       console.error('Failed to start typing indicator:', error);
