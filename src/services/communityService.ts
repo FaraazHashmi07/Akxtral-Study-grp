@@ -394,17 +394,29 @@ export const joinCommunity = async (
     }
 
     // Check if there's already a pending join request
-    const existingRequestQuery = query(
-      joinRequestsRef,
-      where('userId', '==', userId),
-      where('communityId', '==', communityId),
-      where('status', '==', 'pending')
-    );
-    const existingRequest = await getDocs(existingRequestQuery);
+    try {
+      console.log('🔍 [SERVICE] Checking for existing join requests...');
+      const existingRequestQuery = query(
+        joinRequestsRef,
+        where('userId', '==', userId),
+        where('communityId', '==', communityId),
+        where('status', '==', 'pending')
+      );
+      const existingRequest = await getDocs(existingRequestQuery);
 
-    if (!existingRequest.empty) {
-      console.log('⚠️ [SERVICE] User already has a pending join request');
-      throw new Error('You already have a pending join request for this community');
+      if (!existingRequest.empty) {
+        console.log('⚠️ [SERVICE] User already has a pending join request:', existingRequest.docs.map(doc => doc.id));
+        throw new Error('You already have a pending join request for this community');
+      }
+      console.log('✅ [SERVICE] No existing join requests found');
+    } catch (queryError) {
+      if (queryError instanceof Error && queryError.message.includes('pending join request')) {
+        // Re-throw our custom error
+        throw queryError;
+      }
+      console.error('❌ [SERVICE] Error checking existing join requests:', queryError);
+      // Continue with join request creation if query fails
+      console.log('⚠️ [SERVICE] Proceeding with join request creation despite query error');
     }
 
     // Check if community exists and get its data
