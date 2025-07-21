@@ -438,16 +438,22 @@ export const joinCommunity = async (
       // Create join request with error handling
       let docRef;
       try {
+        console.log('🔥 [SERVICE] Creating join request document...');
         docRef = await addDoc(joinRequestsRef, joinRequestData);
         console.log('✅ [SERVICE] Join request created successfully with ID:', docRef.id);
       } catch (joinRequestError) {
         console.error('❌ [SERVICE] Failed to create join request:', joinRequestError);
+        console.error('❌ [SERVICE] Join request error details:', {
+          error: joinRequestError,
+          errorCode: (joinRequestError as any)?.code,
+          joinRequestData
+        });
         throw new Error(`Failed to create join request: ${joinRequestError instanceof Error ? joinRequestError.message : 'Unknown error'}`);
       }
 
       // Also store the join request in the community document for easier admin access
-      // This is a temporary workaround for security rules issues
       try {
+        console.log('🔥 [SERVICE] Storing join request in community document...');
         const communityDocRef = doc(communitiesRef, communityId);
         const communityDoc = await getDoc(communityDocRef);
 
@@ -475,8 +481,15 @@ export const joinCommunity = async (
           console.log('✅ [SERVICE] Join request also stored in community document');
         }
       } catch (error) {
-        console.warn('⚠️ [SERVICE] Failed to store join request in community document:', error);
-        // Don't fail the whole operation if this fails
+        console.error('❌ [SERVICE] Failed to store join request in community document:', error);
+        console.error('❌ [SERVICE] Community document update error details:', {
+          error,
+          errorCode: (error as any)?.code,
+          communityId,
+          userId
+        });
+        // Don't fail the whole operation if this fails - the join request was still created
+        console.log('⚠️ [SERVICE] Join request was created successfully, but community document update failed');
       }
 
       // Verify the document was created by reading it back
@@ -490,6 +503,7 @@ export const joinCommunity = async (
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
 
       // Use atomic transaction to prevent ghost membership state
+      console.log('🔥 [SERVICE] Preparing atomic batch transaction for direct join...');
       const batch = writeBatch(db);
 
       // Create membership document
@@ -506,16 +520,27 @@ export const joinCommunity = async (
         photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
       };
 
+      console.log('📋 [SERVICE] Adding membership document to batch:', {
+        membershipRef: membershipRef.path,
+        membershipData: { ...membershipData, joinedAt: '[serverTimestamp]', lastActive: '[serverTimestamp]' }
+      });
       batch.set(membershipRef, membershipData);
 
       // Update community member count
       const communityRef = doc(communitiesRef, communityId);
-      batch.update(communityRef, {
+      const communityUpdateData = {
         memberCount: (communityData.memberCount || 0) + 1,
         lastActivity: serverTimestamp()
+      };
+
+      console.log('📋 [SERVICE] Adding community update to batch:', {
+        communityRef: communityRef.path,
+        updateData: { ...communityUpdateData, lastActivity: '[serverTimestamp]' }
       });
+      batch.update(communityRef, communityUpdateData);
 
       // Execute atomic transaction
+      console.log('🔥 [SERVICE] Executing atomic batch commit for direct join...');
       await batch.commit();
       console.log('✅ [SERVICE] User joined community successfully (atomic transaction)');
     }

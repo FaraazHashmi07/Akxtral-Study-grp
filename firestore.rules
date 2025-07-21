@@ -74,10 +74,23 @@ service cloud.firestore {
     
     // Communities - CRITICAL FIX: Allow reading for discovery and user communities
     match /communities/{communityId} {
-      // Community metadata - readable by authenticated users for discovery, writable by admins
+      // Community metadata - readable by authenticated users for discovery
       allow read: if isAuthenticated(); // Allow all authenticated users to read communities for discovery
-      allow write: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       allow create: if isAuthenticated(); // Any user can create communities
+
+      // Allow updates for community creators, super admins, and specific join operations
+      allow update: if isAuthenticated() && (
+        // Community creator can update their community
+        resource.data.createdBy == request.auth.uid ||
+        // Super admin can update any community
+        isSuperAdmin() ||
+        // Allow member count updates for direct join operations
+        (request.resource.data.keys().hasAny(['memberCount', 'lastActivity']) &&
+         request.resource.data.keys().size() <= 2) ||
+        // Allow join request storage updates (for approval workflow)
+        (request.resource.data.keys().hasAny(['pendingJoinRequests', 'pendingRequestsCount']) &&
+         request.resource.data.keys().size() <= 2)
+      );
 
       // Special delete rule to avoid circular dependency in isCommunityAdmin function
       allow delete: if isAuthenticated() && (
