@@ -514,9 +514,6 @@ export const joinCommunity = async (
       console.log('⚠️ [SERVICE] Skipping community document update for join request storage');
       console.log('ℹ️ [SERVICE] Join request is available in joinRequests collection for admin access');
       console.log('📋 [SERVICE] Join request created with ID:', docRef.id);
-        console.log('⚠️ [SERVICE] Join request was created successfully, but community document update failed');
-        console.log('ℹ️ [SERVICE] Admins can still see the request in the joinRequests collection');
-      }
 
       // Verify the document was created by reading it back
       const createdDoc = await getDoc(docRef);
