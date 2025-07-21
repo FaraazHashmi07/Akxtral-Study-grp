@@ -104,7 +104,7 @@ service cloud.firestore {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated() && request.resource.data.authorId == request.auth.uid;
 
-        // Allow updates for thread-related fields and message edits
+        // Allow updates for thread-related fields, reactions, and message edits
         allow update: if isAuthenticated() && (
           // Original author can edit their message
           (isOwner(resource.data.authorId) &&
@@ -112,6 +112,10 @@ service cloud.firestore {
            request.resource.data.communityId == resource.data.communityId) ||
           // Any authenticated user can update thread-related fields
           (request.resource.data.keys().hasAny(['hasThread', 'threadCount', 'threadName'])) ||
+          // Any authenticated user can update reactions
+          (request.resource.data.keys().hasOnly(['reactions'])) ||
+          // Any authenticated user can update question answers
+          (request.resource.data.keys().hasOnly(['questionAnswers'])) ||
           // Community admins can pin messages
           (isCommunityAdmin(communityId) &&
            request.resource.data.keys().hasOnly(['isPinned', 'pinnedBy', 'pinnedAt']))
@@ -221,9 +225,11 @@ service cloud.firestore {
 
     // Typing indicators (temporary documents)
     match /typing/{communityId}/indicators/{userId} {
-      allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
-      allow write: if isAuthenticated() && isCommunityMember(communityId) &&
-                   request.auth.uid == userId;
+      // Simplified: Allow all authenticated users to read typing indicators
+      allow read: if isAuthenticated();
+      // Allow users to write their own typing indicators
+      allow write: if isAuthenticated() && request.auth.uid == userId;
+      // Allow users to delete their own typing indicators
       allow delete: if isAuthenticated() && request.auth.uid == userId;
     }
 
