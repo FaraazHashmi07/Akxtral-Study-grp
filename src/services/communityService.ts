@@ -423,14 +423,31 @@ export const joinCommunity = async (
         );
         const allUserRequests = await getDocs(allUserRequestsQuery);
 
-        // Check if any of the requests are pending
+        console.log('🔍 [SERVICE] Found user requests for this community:', allUserRequests.docs.length);
+
+        // Check if any of the requests are actually pending (not processed)
         const pendingRequests = allUserRequests.docs.filter(doc => {
           const data = doc.data();
-          return data.status === 'pending';
+          const status = data.status;
+          const createdAt = data.createdAt;
+
+          // Check if request is truly pending and not too old (older than 24 hours might be stale)
+          const isRecentRequest = createdAt && createdAt.toDate &&
+            (Date.now() - createdAt.toDate().getTime()) < (24 * 60 * 60 * 1000);
+
+          console.log('📋 [SERVICE] Request status check:', {
+            docId: doc.id,
+            status,
+            createdAt: createdAt?.toDate?.() || createdAt,
+            isRecent: isRecentRequest,
+            isPending: status === 'pending'
+          });
+
+          return status === 'pending' && isRecentRequest;
         });
 
         if (pendingRequests.length > 0) {
-          console.log('⚠️ [SERVICE] User already has a pending join request (fallback query):', pendingRequests.map(doc => doc.id));
+          console.log('⚠️ [SERVICE] User already has a pending join request (fallback query):', pendingRequests.map(doc => ({ id: doc.id, status: doc.data().status })));
           throw new Error('You already have a pending join request for this community');
         }
         console.log('✅ [SERVICE] No existing pending join requests found (fallback query)');
@@ -522,6 +539,9 @@ export const joinCommunity = async (
 
           console.log('📋 [SERVICE] Updating community document with join request data:', {
             communityId,
+            userId,
+            currentRequestCount: currentData.pendingRequestsCount || 0,
+            newRequestCount: pendingRequests.length,
             updateData: { ...updateData, pendingJoinRequests: `[${pendingRequests.length} requests]` }
           });
 
@@ -583,13 +603,29 @@ export const joinCommunity = async (
 
         console.log('📊 [SERVICE] Updating community member count:', {
           communityRef: communityRef.path,
-          updateData: { ...communityUpdateData, lastActivity: '[serverTimestamp]' }
+          currentMemberCount: communityData.memberCount || 0,
+          newMemberCount: (communityData.memberCount || 0) + 1,
+          updateData: { ...communityUpdateData, lastActivity: '[serverTimestamp]' },
+          userId,
+          communityId,
+          fieldsBeingUpdated: Object.keys(communityUpdateData)
         });
 
+        // Test with minimal update first
+        console.log('🔥 [SERVICE] Attempting community document update...');
         await updateDoc(communityRef, communityUpdateData);
         console.log('✅ [SERVICE] Community member count updated successfully');
       } catch (countUpdateError) {
-        console.warn('⚠️ [SERVICE] Failed to update community member count:', countUpdateError);
+        console.error('❌ [SERVICE] Failed to update community member count:', countUpdateError);
+        console.error('❌ [SERVICE] Member count update error details:', {
+          error: countUpdateError,
+          errorCode: (countUpdateError as any)?.code,
+          errorMessage: countUpdateError instanceof Error ? countUpdateError.message : 'Unknown error',
+          communityId,
+          userId,
+          currentMemberCount: communityData.memberCount || 0,
+          attemptedNewCount: (communityData.memberCount || 0) + 1
+        });
         // Don't fail the whole operation if member count update fails
         // The user is still successfully joined
       }

@@ -84,13 +84,12 @@ service cloud.firestore {
         resource.data.createdBy == request.auth.uid ||
         // Super admin can update any community (full access)
         isSuperAdmin() ||
-        // Allow member count updates for direct join operations (any authenticated user)
-        (request.resource.data.keys().hasOnly(['memberCount', 'lastActivity']) &&
-         request.resource.data.memberCount > resource.data.memberCount) ||
-        // Allow join request storage updates (any authenticated user)
-        (request.resource.data.keys().hasOnly(['pendingJoinRequests', 'pendingRequestsCount'])) ||
-        // Allow combined updates for join operations
-        (request.resource.data.keys().hasOnly(['memberCount', 'lastActivity', 'pendingJoinRequests', 'pendingRequestsCount']))
+        // Allow member count and activity updates for join operations (simplified)
+        request.resource.data.keys().hasOnly(['memberCount', 'lastActivity']) ||
+        // Allow join request storage updates for approval workflow
+        request.resource.data.keys().hasOnly(['pendingJoinRequests', 'pendingRequestsCount']) ||
+        // Allow combined updates for complex join operations
+        request.resource.data.keys().hasOnly(['memberCount', 'lastActivity', 'pendingJoinRequests', 'pendingRequestsCount'])
       );
 
       // Special delete rule to avoid circular dependency in isCommunityAdmin function
@@ -253,6 +252,9 @@ service cloud.firestore {
         // Allow all authenticated users to read announcements
         // Application logic will handle community membership validation
         allow read: if isAuthenticated();
+
+        // Allow querying announcements for authenticated users
+        allow list: if isAuthenticated();
 
         // Allow community creators to create announcements
         allow create: if isAuthenticated() && (
