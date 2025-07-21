@@ -251,9 +251,6 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && request.auth.uid == userId;
     }
 
-    // Rate limiting for sensitive operations
-    match /{document=**} {
-      allow write: if request.time > resource.data.lastModified + duration.value(1, 's');
-    }
+
   }
 }
