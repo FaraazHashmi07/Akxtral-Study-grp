@@ -199,7 +199,12 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
         throw new Error('User not authenticated');
       }
 
-      console.log('🗑️ [STORE] Deleting community:', id);
+      console.log('🗑️ [STORE] Deleting community:', {
+        id,
+        idType: typeof id,
+        idLength: id?.length,
+        userId: user.uid
+      });
       await communityService.deleteCommunity(id, user.uid);
 
       const { communities, joinedCommunities, activeCommunity } = get();
