@@ -1,18 +1,17 @@
-import {
-  collection,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  getDocs,
+import { 
+  collection, 
+  doc, 
+  addDoc, 
+  updateDoc, 
+  deleteDoc, 
+  getDocs, 
   getDoc,
-  query,
-  where,
-  orderBy,
+  query, 
+  where, 
+  orderBy, 
   limit,
   serverTimestamp,
-  Timestamp,
-  writeBatch
+  Timestamp 
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Community, CommunityMember, JoinRequest, CommunityFilter } from '../types';
@@ -359,23 +358,6 @@ export const getUserCommunities = async (userId: string): Promise<Community[]> =
   }
 };
 
-// Helper function to check if user is already a member
-const checkExistingMembership = async (communityId: string, userId: string): Promise<boolean> => {
-  try {
-    const existingMembershipQuery = query(
-      membersRef,
-      where('uid', '==', userId),
-      where('communityId', '==', communityId)
-    );
-    const existingMembership = await getDocs(existingMembershipQuery);
-    return !existingMembership.empty;
-  } catch (error) {
-    console.error('❌ [SERVICE] Error checking existing membership:', error);
-    // If we can't check, assume not a member to allow the join attempt
-    return false;
-  }
-};
-
 export const joinCommunity = async (
   communityId: string,
   userId: string,
@@ -386,84 +368,31 @@ export const joinCommunity = async (
   try {
     console.log('🤝 [SERVICE] Join community request:', { communityId, userId });
 
-    // First, check if user is already a member with better error handling
-    const isAlreadyMember = await checkExistingMembership(communityId, userId);
-    if (isAlreadyMember) {
+    // First, check if user is already a member
+    const existingMembershipQuery = query(
+      membersRef,
+      where('uid', '==', userId),
+      where('communityId', '==', communityId)
+    );
+    const existingMembership = await getDocs(existingMembershipQuery);
+
+    if (!existingMembership.empty) {
       console.log('⚠️ [SERVICE] User is already a member of this community');
       throw new Error('You are already a member of this community');
     }
 
-    // Check if there's already a pending join request (with fallback validation)
-    try {
-      console.log('🔍 [SERVICE] Checking for existing join requests...');
+    // Check if there's already a pending join request
+    const existingRequestQuery = query(
+      joinRequestsRef,
+      where('userId', '==', userId),
+      where('communityId', '==', communityId),
+      where('status', '==', 'pending')
+    );
+    const existingRequest = await getDocs(existingRequestQuery);
 
-      // Try the composite query first
-      try {
-        const existingRequestQuery = query(
-          joinRequestsRef,
-          where('userId', '==', userId),
-          where('communityId', '==', communityId),
-          where('status', '==', 'pending')
-        );
-        const existingRequest = await getDocs(existingRequestQuery);
-
-        if (!existingRequest.empty) {
-          console.log('⚠️ [SERVICE] User already has a pending join request (composite query):', existingRequest.docs.map(doc => doc.id));
-          throw new Error('You already have a pending join request for this community');
-        }
-        console.log('✅ [SERVICE] No existing pending join requests found (composite query)');
-      } catch (compositeQueryError) {
-        console.warn('⚠️ [SERVICE] Composite query failed, trying fallback approach:', compositeQueryError);
-
-        // Fallback: Use simpler query and filter in memory
-        const allUserRequestsQuery = query(
-          joinRequestsRef,
-          where('userId', '==', userId),
-          where('communityId', '==', communityId)
-        );
-        const allUserRequests = await getDocs(allUserRequestsQuery);
-
-        console.log('🔍 [SERVICE] Found user requests for this community:', allUserRequests.docs.length);
-
-        // Check if any of the requests are actually pending (not processed)
-        const pendingRequests = allUserRequests.docs.filter(doc => {
-          const data = doc.data();
-          const status = data.status;
-          const createdAt = data.createdAt;
-
-          // Check if request is truly pending and not too old (older than 24 hours might be stale)
-          const isRecentRequest = createdAt && createdAt.toDate &&
-            (Date.now() - createdAt.toDate().getTime()) < (24 * 60 * 60 * 1000);
-
-          console.log('📋 [SERVICE] Request status check:', {
-            docId: doc.id,
-            status,
-            createdAt: createdAt?.toDate?.() || createdAt,
-            isRecent: isRecentRequest,
-            isPending: status === 'pending'
-          });
-
-          return status === 'pending' && isRecentRequest;
-        });
-
-        if (pendingRequests.length > 0) {
-          console.log('⚠️ [SERVICE] User already has a pending join request (fallback query):', pendingRequests.map(doc => ({ id: doc.id, status: doc.data().status })));
-          throw new Error('You already have a pending join request for this community');
-        }
-        console.log('✅ [SERVICE] No existing pending join requests found (fallback query)');
-      }
-    } catch (queryError) {
-      if (queryError instanceof Error && queryError.message.includes('pending join request')) {
-        // Re-throw our custom error
-        throw queryError;
-      }
-      console.error('❌ [SERVICE] Error checking existing join requests:', queryError);
-      console.error('❌ [SERVICE] Query error details:', {
-        error: queryError,
-        errorCode: (queryError as any)?.code
-      });
-      // Continue with join request creation if query fails
-      console.log('⚠️ [SERVICE] Proceeding with join request creation despite query error');
+    if (!existingRequest.empty) {
+      console.log('⚠️ [SERVICE] User already has a pending join request');
+      throw new Error('You already have a pending join request for this community');
     }
 
     // Check if community exists and get its data
@@ -492,28 +421,44 @@ export const joinCommunity = async (
       };
 
       console.log('📋 [SERVICE] Join request data to be written:', joinRequestData);
-      console.log('📋 [SERVICE] Target collection: joinRequests');
 
-      // Create join request with error handling
-      let docRef;
+      // Create join request
+      const docRef = await addDoc(joinRequestsRef, joinRequestData);
+      console.log('✅ [SERVICE] Join request created successfully with ID:', docRef.id);
+
+      // Also store the join request in the community document for easier admin access
+      // This is a temporary workaround for security rules issues
       try {
-        console.log('🔥 [SERVICE] Creating join request document...');
-        docRef = await addDoc(joinRequestsRef, joinRequestData);
-        console.log('✅ [SERVICE] Join request created successfully with ID:', docRef.id);
-      } catch (joinRequestError) {
-        console.error('❌ [SERVICE] Failed to create join request:', joinRequestError);
-        console.error('❌ [SERVICE] Join request error details:', {
-          error: joinRequestError,
-          errorCode: (joinRequestError as any)?.code,
-          joinRequestData
-        });
-        throw new Error(`Failed to create join request: ${joinRequestError instanceof Error ? joinRequestError.message : 'Unknown error'}`);
-      }
+        const communityDocRef = doc(communitiesRef, communityId);
+        const communityDoc = await getDoc(communityDocRef);
 
-      // TEMPORARILY SKIP community document update for join requests
-      console.log('⚠️ [SERVICE] Skipping community document update for join request storage');
-      console.log('ℹ️ [SERVICE] Join request is available in joinRequests collection for admin access');
-      console.log('📋 [SERVICE] Join request created with ID:', docRef.id);
+        if (communityDoc.exists()) {
+          const currentData = communityDoc.data();
+          const pendingRequests = currentData.pendingJoinRequests || [];
+
+          // Add the new request to the array
+          pendingRequests.push({
+            id: docRef.id,
+            userId,
+            userDisplayName: userDisplayName || '',
+            userEmail: userEmail || '',
+            message: message || '',
+            createdAt: new Date(),
+            status: 'pending'
+          });
+
+          // Update the community document
+          await updateDoc(communityDocRef, {
+            pendingJoinRequests: pendingRequests,
+            pendingRequestsCount: pendingRequests.length
+          });
+
+          console.log('✅ [SERVICE] Join request also stored in community document');
+        }
+      } catch (error) {
+        console.warn('⚠️ [SERVICE] Failed to store join request in community document:', error);
+        // Don't fail the whole operation if this fails
+      }
 
       // Verify the document was created by reading it back
       const createdDoc = await getDoc(docRef);
@@ -524,9 +469,8 @@ export const joinCommunity = async (
       }
     } else {
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
-
-      // Create membership document first
-      const membershipData = {
+      // Join directly - include user profile data for easier access
+      await addDoc(membersRef, {
         uid: userId,
         communityId,
         role: 'community_member',
@@ -536,73 +480,17 @@ export const joinCommunity = async (
         email: userEmail || '',
         displayName: userDisplayName || '',
         photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
-      };
-
-      console.log('📋 [SERVICE] Creating membership document:', {
-        membershipData: { ...membershipData, joinedAt: '[serverTimestamp]', lastActive: '[serverTimestamp]' }
       });
 
-      // Create membership document
-      await addDoc(membersRef, membershipData);
-      console.log('✅ [SERVICE] Membership document created successfully');
-
-      // Test community member count update with completely open rules
-      try {
-        const communityRef = doc(communitiesRef, communityId);
-
-        // Get fresh community data for direct join (not from join request flow)
-        const freshCommunityDoc = await getDoc(communityRef);
-        if (!freshCommunityDoc.exists()) {
-          throw new Error('Community not found for member count update');
-        }
-
-        const freshCommunityData = freshCommunityDoc.data();
-
-        // Test with minimal update first
-        const communityUpdateData = {
-          memberCount: (freshCommunityData.memberCount || 0) + 1
-        };
-
-        console.log('🧪 [SERVICE] TESTING: Updating community member count with open rules:', {
-          communityRef: communityRef.path,
-          currentMemberCount: freshCommunityData.memberCount || 0,
-          newMemberCount: (freshCommunityData.memberCount || 0) + 1,
-          userId,
-          communityId,
-          communityName: freshCommunityData.name,
-          firebaseApp: db.app?.name,
-          firebaseProjectId: db._delegate?._databaseId?.projectId
-        });
-
-        console.log('🔥 [SERVICE] Attempting updateDoc operation...');
-        await updateDoc(communityRef, communityUpdateData);
-        console.log('✅ [SERVICE] Community member count updated successfully with open rules');
-      } catch (countUpdateError) {
-        console.error('❌ [SERVICE] STILL FAILING: Community member count update failed even with open rules:', countUpdateError);
-        console.error('❌ [SERVICE] This suggests a deeper issue beyond security rules:', {
-          error: countUpdateError,
-          errorCode: (countUpdateError as any)?.code,
-          errorMessage: countUpdateError instanceof Error ? countUpdateError.message : 'Unknown error',
-          communityId,
-          userId
-        });
-      }
-
+      // Update member count
+      await updateDoc(doc(communitiesRef, communityId), {
+        memberCount: (communityData.memberCount || 0) + 1,
+        lastActivity: serverTimestamp()
+      });
       console.log('✅ [SERVICE] User joined community successfully');
     }
   } catch (error) {
     console.error('❌ [SERVICE] Error joining community:', error);
-    console.error('❌ [SERVICE] Error details:', {
-      error,
-      errorMessage: error instanceof Error ? error.message : 'Unknown error',
-      errorCode: (error as any)?.code,
-      communityId,
-      userId
-    });
-
-    // Note: If this is a batch operation failure, Firestore automatically rolls back
-    // If this is a join request failure, no rollback needed as no membership was created
-
     throw error; // Re-throw the original error to preserve the message
   }
 };
