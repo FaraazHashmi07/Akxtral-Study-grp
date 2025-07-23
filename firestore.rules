@@ -215,13 +215,7 @@ service cloud.firestore {
         allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       }
 
-      // Community announcement reads (user read tracking subcollection)
-      match /announcementReads/{userId} {
-        // SECURITY FIX: Users can only read/write their own read status AND must be community members
-        allow read, write: if isAuthenticated() &&
-                           request.auth.uid == userId &&
-                           isCommunityMember(communityId);
-      }
+
     }
 
     // Top-level resources collection (for current implementation)
@@ -298,9 +292,7 @@ service cloud.firestore {
       allow read, write: if false; // Explicitly deny all access to root-level announcements
     }
 
-    match /announcementReads/{document=**} {
-      allow read, write: if false; // Explicitly deny all access to root-level announcementReads
-    }
+
 
   }
 }

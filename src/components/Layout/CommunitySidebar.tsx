@@ -28,7 +28,7 @@ export const CommunitySidebar: React.FC = () => {
   // Note: New chat system is community-based, not channel-based
   const { activeSection, setActiveSection, openModal } = useUIStore();
   const { user } = useAuthStore();
-  const { unreadCounts } = useAnnouncementStore();
+
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   // Check if user is admin - either through roles or if they created the community
@@ -205,9 +205,7 @@ export const CommunitySidebar: React.FC = () => {
           {sections.map((section) => {
             const Icon = section.icon;
             const isActive = activeSection === section.id;
-            const unreadCount = section.id === 'announcements' && activeCommunity?.id
-              ? unreadCounts[activeCommunity.id] || 0
-              : 0;
+
 
             return (
               <motion.button
@@ -224,11 +222,6 @@ export const CommunitySidebar: React.FC = () => {
               >
                 <Icon size={18} />
                 <span className="font-medium">{section.name}</span>
-                {unreadCount > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {unreadCount > 9 ? '9+' : unreadCount}
-                  </span>
-                )}
               </motion.button>
             );
           })}

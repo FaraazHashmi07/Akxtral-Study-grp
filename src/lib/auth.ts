@@ -1,3 +1,5 @@
+import { useCommunityStore } from '../store/communityStore';
+import { useUIStore } from '../store/uiStore';
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -354,6 +356,10 @@ export const signOutUser = async (): Promise<void> => {
     console.log('🔄 Calling Firebase signOut...');
     await signOut(auth);
     console.log('✅ Firebase signOut completed');
+
+    // Reset all app stores after logout
+    useCommunityStore.getState().reset?.();
+    useUIStore.getState().reset?.(); // if needed
   } catch (error: any) {
     console.error('❌ Firebase signOut error:', error);
     throw error;

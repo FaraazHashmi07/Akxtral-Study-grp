@@ -326,13 +326,7 @@ export interface AnnouncementAttachment {
   size: number;
 }
 
-export interface AnnouncementReads {
-  userId: string;
-  communityId: string;
-  lastReadTimestamp: Date;
-  readAnnouncementIds: string[];
-  updatedAt: Date;
-}
+
 
 // ===== RESOURCES =====
 export interface Resource {

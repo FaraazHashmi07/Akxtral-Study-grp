@@ -22,7 +22,6 @@ import { useAuthStore } from './authStore';
 interface AnnouncementState {
   // State
   announcements: Record<string, Announcement[]>; // communityId -> announcements
-  unreadCounts: Record<string, number>; // communityId -> unread count
   loading: boolean;
   error: string | null;
 
@@ -40,10 +39,6 @@ interface AnnouncementState {
   updateAnnouncement: (communityId: string, announcementId: string, data: Partial<Announcement>) => Promise<void>;
   deleteAnnouncement: (communityId: string, announcementId: string) => Promise<void>;
   toggleAnnouncementReaction: (communityId: string, announcementId: string, emoji: string) => Promise<void>;
-  
-  // Read tracking
-  markAnnouncementsAsRead: (communityId: string) => Promise<void>;
-  getUnreadCount: (communityId: string) => Promise<number>;
 
   // Cleanup
   unsubscribeAll: () => void;
@@ -60,7 +55,6 @@ interface AnnouncementState {
 export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
   // Initial state
   announcements: {},
-  unreadCounts: {},
   loading: false,
   error: null,
   unsubscribeAnnouncements: {},
@@ -164,15 +158,6 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
         announcements: {
           ...currentAnnouncements,
           [communityId]: announcements
-        }
-      });
-
-      // Calculate and set initial unread count
-      const unreadCount = await get().getUnreadCount(communityId);
-      set({
-        unreadCounts: {
-          ...get().unreadCounts,
-          [communityId]: unreadCount
         }
       });
 
@@ -337,115 +322,6 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
       set({ error: error instanceof Error ? error.message : 'Failed to toggle reaction' });
     }
   },
-
-  // Mark announcements as read for current user
-  markAnnouncementsAsRead: async (communityId) => {
-    try {
-      console.log('👁️ [ANNOUNCEMENTS] Marking announcements as read for community:', communityId);
-
-      const { useAuthStore } = await import('./authStore');
-      const { user } = useAuthStore.getState();
-
-      if (!user) {
-        throw new Error('User not authenticated');
-      }
-
-      const { announcements } = get();
-      const communityAnnouncements = announcements[communityId] || [];
-      const announcementIds = communityAnnouncements.map(a => a.id);
-
-      const readRef = doc(db, 'communities', communityId, 'announcementReads', user.uid);
-      await setDoc(readRef, {
-        userId: user.uid,
-        communityId,
-        lastReadTimestamp: serverTimestamp(),
-        readAnnouncementIds: announcementIds,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      // Immediately set unread count to 0 for instant UI feedback
-      set({
-        unreadCounts: {
-          ...get().unreadCounts,
-          [communityId]: 0
-        }
-      });
-
-      console.log('✅ [ANNOUNCEMENTS] Marked announcements as read, unread count set to 0');
-
-      // Also recalculate to ensure accuracy (in case user created announcements)
-      setTimeout(async () => {
-        const newUnreadCount = await get().getUnreadCount(communityId);
-        set({
-          unreadCounts: {
-            ...get().unreadCounts,
-            [communityId]: newUnreadCount
-          }
-        });
-        console.log('🔄 [ANNOUNCEMENTS] Recalculated unread count:', newUnreadCount);
-      }, 100);
-    } catch (error) {
-      console.error('❌ [ANNOUNCEMENTS] Failed to mark announcements as read:', error);
-    }
-  },
-
-  // Get unread count for a community
-  getUnreadCount: async (communityId) => {
-    try {
-      const { useAuthStore } = await import('./authStore');
-      const { user } = useAuthStore.getState();
-
-      if (!user) return 0;
-
-      const { announcements } = get();
-      const communityAnnouncements = announcements[communityId] || [];
-
-      // Get user's read status
-      const readRef = doc(db, 'communities', communityId, 'announcementReads', user.uid);
-      const readDoc = await getDoc(readRef);
-
-      if (!readDoc.exists()) {
-        // User has never read announcements, count all except their own
-        const unreadAnnouncements = communityAnnouncements.filter(announcement =>
-          announcement.authorId !== user.uid
-        );
-        return unreadAnnouncements.length;
-      }
-
-      const readData = readDoc.data() as AnnouncementReads;
-      const lastReadTimestamp = readData.lastReadTimestamp;
-      const readIds = readData.readAnnouncementIds || [];
-
-      // Count announcements created after last read timestamp or not in read IDs
-      // BUT exclude announcements created by the current user
-      const unreadCount = communityAnnouncements.filter(announcement => {
-        // Don't show badges for announcements the user created
-        if (announcement.authorId === user.uid) {
-          return false;
-        }
-
-        const isAfterLastRead = announcement.createdAt > lastReadTimestamp;
-        const isNotInReadIds = !readIds.includes(announcement.id);
-        return isAfterLastRead || isNotInReadIds;
-      }).length;
-
-      console.log('📊 [ANNOUNCEMENTS] Unread count calculation:', {
-        communityId,
-        userId: user.uid,
-        totalAnnouncements: communityAnnouncements.length,
-        userCreatedAnnouncements: communityAnnouncements.filter(a => a.authorId === user.uid).length,
-        unreadCount,
-        lastReadTimestamp,
-        readIds: readIds.length
-      });
-
-      return unreadCount;
-    } catch (error) {
-      console.error('❌ [ANNOUNCEMENTS] Failed to get unread count:', error);
-      return 0;
-    }
-  },
-
   // Subscribe to real-time announcements updates
   subscribeToAnnouncements: async (communityId) => {
     console.log('🔌 [ANNOUNCEMENTS] Subscribing to announcements for community:', communityId);
@@ -500,16 +376,6 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
           ...currentAnnouncements,
           [communityId]: announcements
         }
-      });
-
-      // Update unread count
-      get().getUnreadCount(communityId).then(count => {
-        set({
-          unreadCounts: {
-            ...get().unreadCounts,
-            [communityId]: count
-          }
-        });
       });
     }, (error) => {
       console.error('❌ [ANNOUNCEMENTS] Real-time subscription error:', error);
@@ -583,8 +449,6 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
     set({
       unsubscribeAnnouncements: {},
       announcements: {},
-      unreadCounts: {},
-      loading: false,
       error: null
     });
 

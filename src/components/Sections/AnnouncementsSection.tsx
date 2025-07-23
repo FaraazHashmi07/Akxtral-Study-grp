@@ -10,7 +10,7 @@ import { isCommunityAdmin, isCommunityAdminEnhanced } from '../../lib/authorizat
 
 export const AnnouncementsSection: React.FC = () => {
   const { activeCommunity } = useCommunityStore();
-  const { announcements, loading, loadAnnouncements, markAnnouncementsAsRead } = useAnnouncementStore();
+  const { announcements, loading, loadAnnouncements } = useAnnouncementStore();
   const { user } = useAuthStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -54,7 +54,6 @@ export const AnnouncementsSection: React.FC = () => {
         // Double-check user is still authenticated and community is still active
         if (user && activeCommunity?.id) {
           loadAnnouncements(activeCommunity.id);
-          markAnnouncementsAsRead(activeCommunity.id);
         }
       }, 100); // Small delay to allow membership validation to complete
 
@@ -62,7 +61,7 @@ export const AnnouncementsSection: React.FC = () => {
     } else if (!user) {
       console.warn('⚠️ [ANNOUNCEMENTS] User not authenticated, skipping announcement load');
     }
-  }, [activeCommunity?.id, user, loadAnnouncements, markAnnouncementsAsRead]);
+  }, [activeCommunity?.id, user, loadAnnouncements]);
 
   // SECURITY CHECK: Don't render if no active community or user not authenticated
   if (!activeCommunity || !user) {
