@@ -8,7 +8,7 @@ import { useAuthStore } from '../../store/authStore';
 import { Community, CommunityFilter } from '../../types';
 
 export const DiscoverCommunitiesModal: React.FC = () => {
-  const { discoverCommunities, joinCommunity, joinedCommunities, isUserMemberOfCommunity, loadJoinedCommunities } = useCommunityStore();
+  const { discoverCommunities, joinCommunity, joinedCommunities, isUserMemberOfCommunity, checkMembershipDirect, loadJoinedCommunities } = useCommunityStore();
   const { closeModal, showToast } = useUIStore();
   const { user } = useAuthStore();
 
@@ -44,9 +44,21 @@ export const DiscoverCommunitiesModal: React.FC = () => {
 
   // Load user memberships when modal opens
   useEffect(() => {
-    console.log('🔄 [MODAL] Discovery modal opened, loading user memberships and communities...');
-    loadUserMemberships();
-    loadCommunities();
+    console.log('🔄 [MODAL] Discovery modal opened, loading user memberships first...');
+
+    // Ensure we don't interfere with sidebar state
+    const loadData = async () => {
+      try {
+        await loadUserMemberships();
+        console.log('✅ [MODAL] User memberships loaded, now loading communities...');
+        await loadCommunities();
+      } catch (error) {
+        console.error('❌ [MODAL] Failed to load modal data:', error);
+        setLoading(false);
+      }
+    };
+
+    loadData();
   }, []); // Empty dependency array means this runs once when component mounts
 
   const loadUserMemberships = async () => {
@@ -55,8 +67,8 @@ export const DiscoverCommunitiesModal: React.FC = () => {
     try {
       console.log('👤 [MODAL] Loading user memberships for:', user.uid);
 
-      // Force reload joined communities from the store
-      await loadJoinedCommunities();
+      // Use cached data if available, don't force reload unless necessary
+      await loadJoinedCommunities(false); // Don't force refresh
 
       console.log('📋 [MODAL] User\'s joined communities after reload:', joinedCommunities.map(c => c.id));
     } catch (error) {
@@ -159,9 +171,10 @@ export const DiscoverCommunitiesModal: React.FC = () => {
       return;
     }
 
-    // Check if user is already a member
-    if (isUserMemberOfCommunity(community.id)) {
-      console.log('⚠️ [MODAL] User is already a member of this community');
+    // Double-check membership with direct Firestore query for accuracy
+    const isAlreadyMember = await checkMembershipDirect(community.id);
+    if (isAlreadyMember) {
+      console.log('⚠️ [MODAL] User is already a member of this community (direct check)');
       showToast({
         type: 'warning',
         title: 'Already a Member',
@@ -185,10 +198,10 @@ export const DiscoverCommunitiesModal: React.FC = () => {
           : `Welcome to ${community.name}!`
       });
 
-      // Refresh the community list to remove the joined community
-      console.log('🔄 [MODAL] Refreshing community list after join...');
-      await loadUserMemberships();
-      await loadCommunities();
+      // Force refresh the community list to immediately reflect the joined community
+      console.log('🔄 [MODAL] Force refreshing community list after join...');
+      await loadJoinedCommunities(true); // Force refresh to get latest data
+      await loadCommunities(); // Reload discovery list
 
       if (!community.requiresApproval) {
         // Don't close modal immediately, let user see the updated list

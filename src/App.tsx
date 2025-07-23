@@ -1,8 +1,6 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import { useAuthStore } from './store/authStore';
-import { useUIStore } from './store/uiStore';
 import { useCommunityStore } from './store/communityStore';
 
 // Components
@@ -19,7 +17,6 @@ import { SuperAdminLayout } from './components/Admin/SuperAdminLayout';
 
 function App() {
   const { user, loading, showTwoFactor, initialize, isSuperAdmin } = useAuthStore();
-  const { theme } = useUIStore();
   const { loadJoinedCommunities } = useCommunityStore();
   const [showLogin, setShowLogin] = React.useState(false);
 

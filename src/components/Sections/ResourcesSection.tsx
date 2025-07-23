@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
 import { FolderOpen, Upload, Grid, List, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
@@ -23,6 +22,22 @@ export const ResourcesSection: React.FC = () => {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Load resources when component mounts or community changes
+  useEffect(() => {
+    if (activeCommunity?.id) {
+      console.log('🔄 Loading resources for community:', activeCommunity.id);
+      loadResources(activeCommunity.id).catch((error) => {
+        console.error('Failed to load resources:', error);
+        showToast({
+          type: 'error',
+          title: 'Failed to Load Resources',
+          message: 'Could not load community resources. Please try again.'
+        });
+      });
+    }
+  }, [activeCommunity?.id, loadResources, showToast]);
+
+  // Early return after hooks
   if (!activeCommunity) return null;
 
   const communityResources = resources[activeCommunity.id] || [];
@@ -45,21 +60,6 @@ export const ResourcesSection: React.FC = () => {
     communityId: activeCommunity.id
   });
 
-  // Load resources when component mounts or community changes
-  useEffect(() => {
-    if (activeCommunity?.id) {
-      console.log('🔄 Loading resources for community:', activeCommunity.id);
-      loadResources(activeCommunity.id).catch((error) => {
-        console.error('Failed to load resources:', error);
-        showToast({
-          type: 'error',
-          title: 'Failed to Load Resources',
-          message: 'Could not load community resources. Please try again.'
-        });
-      });
-    }
-  }, [activeCommunity?.id, loadResources, showToast]);
-
   const handleUploadClick = () => {
     openModal('uploadResource', { communityId: activeCommunity.id });
   };
@@ -75,7 +75,7 @@ export const ResourcesSection: React.FC = () => {
         title: 'Resources Refreshed',
         message: 'Resource list has been updated'
       });
-    } catch (error) {
+    } catch {
       showToast({
         type: 'error',
         title: 'Refresh Failed',

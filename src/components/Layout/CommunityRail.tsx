@@ -4,11 +4,11 @@ import { Plus, Search, Home, Settings, Crown } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
-import { isCommunityAdmin } from '../../lib/authorization';
+import { isCommunityAdminEnhanced } from '../../lib/authorization';
 import { Community } from '../../types';
 
 export const CommunityRail: React.FC = () => {
-  const { joinedCommunities, activeCommunity, setActiveCommunity } = useCommunityStore();
+  const { joinedCommunities, activeCommunity, setActiveCommunity, loading, error } = useCommunityStore();
   const {
     setActiveCommunity: setUIActiveCommunity,
     openModal,
@@ -18,6 +18,38 @@ export const CommunityRail: React.FC = () => {
 
   const [hoveredCommunity, setHoveredCommunity] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+
+  // Deduplicate communities by ID to prevent React key conflicts
+  const uniqueCommunities = React.useMemo(() => {
+    if (!Array.isArray(joinedCommunities)) {
+      console.warn('⚠️ [RAIL] joinedCommunities is not an array:', joinedCommunities);
+      return [];
+    }
+
+    const seen = new Set<string>();
+    const unique = joinedCommunities.filter(community => {
+      if (!community || !community.id) {
+        console.warn('⚠️ [RAIL] Invalid community object:', community);
+        return false;
+      }
+
+      if (seen.has(community.id)) {
+        console.warn('⚠️ [RAIL] Duplicate community ID found:', community.id, community.name);
+        return false;
+      }
+
+      seen.add(community.id);
+      return true;
+    });
+
+    console.log('🔍 [RAIL] Community deduplication:', {
+      original: joinedCommunities.length,
+      unique: unique.length,
+      duplicatesRemoved: joinedCommunities.length - unique.length
+    });
+
+    return unique;
+  }, [joinedCommunities]);
 
   const handleCommunitySelect = (community: Community) => {
     if (isSelecting) return; // Prevent multiple rapid clicks
@@ -56,18 +88,22 @@ export const CommunityRail: React.FC = () => {
   };
 
   const isAdmin = (community: Community) => {
-    // Primary check using authorization function
-    const adminStatus = isCommunityAdmin(user, community.id);
+    if (!user) return false;
 
-    // Fallback check using direct role comparison
-    const fallbackAdmin = user?.communityRoles?.[community.id]?.role === 'community_admin';
+    // Use the enhanced authorization function that properly checks both role and creator status
+    const adminStatus = isCommunityAdminEnhanced(user, community.id, community);
 
-    // Check if user created the community
-    const isCreator = user?.uid === community.createdBy;
+    // Debug logging to track admin status determination
+    console.log('🔐 [RAIL] Admin status check:', {
+      userId: user.uid,
+      communityId: community.id,
+      communityCreatedBy: community.createdBy,
+      userRoles: user.communityRoles?.[community.id],
+      adminStatus,
+      isCreator: user.uid === community.createdBy
+    });
 
-    const finalAdminStatus = adminStatus || fallbackAdmin || isCreator;
-
-    return finalAdminStatus;
+    return adminStatus;
   };
 
   return (
@@ -106,16 +142,43 @@ export const CommunityRail: React.FC = () => {
 
       {/* Joined Communities */}
       <div className="flex flex-col space-y-2 flex-1 overflow-y-auto scrollbar-hide">
-        {joinedCommunities.map((community) => (
-          <CommunityAvatar
-            key={community.id}
-            community={community}
-            isActive={activeCommunity?.id === community.id}
-            isAdmin={isAdmin(community)}
-            onClick={() => handleCommunitySelect(community)}
-            onHover={setHoveredCommunity}
-          />
-        ))}
+        {loading && uniqueCommunities.length === 0 ? (
+          // Loading state
+          <div className="flex flex-col space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={`loading-${i}`}
+                className="w-12 h-12 rounded-2xl bg-gray-700 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : error ? (
+          // Error state
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="w-8 h-8 rounded-full bg-red-600 mb-2 opacity-50 flex items-center justify-center">
+              <span className="text-xs text-white">!</span>
+            </div>
+            <p className="text-xs text-red-400 px-2">Failed to load</p>
+          </div>
+        ) : uniqueCommunities.length === 0 ? (
+          // Empty state
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="w-8 h-8 rounded-full bg-gray-600 mb-2 opacity-50" />
+            <p className="text-xs text-gray-400 px-2">No communities yet</p>
+          </div>
+        ) : (
+          // Communities list with unique entries
+          uniqueCommunities.map((community) => (
+            <CommunityAvatar
+              key={community.id}
+              community={community}
+              isActive={activeCommunity?.id === community.id}
+              isAdmin={isAdmin(community)}
+              onClick={() => handleCommunitySelect(community)}
+              onHover={setHoveredCommunity}
+            />
+          ))
+        )}
       </div>
 
       {/* Action Buttons */}
@@ -169,8 +232,8 @@ export const CommunityRail: React.FC = () => {
           >
             <div className="flex items-center space-x-2">
               <span>{hoveredCommunity}</span>
-              {joinedCommunities.find(c => c.name === hoveredCommunity) &&
-               isAdmin(joinedCommunities.find(c => c.name === hoveredCommunity)!) && (
+              {uniqueCommunities.find(c => c.name === hoveredCommunity) &&
+               isAdmin(uniqueCommunities.find(c => c.name === hoveredCommunity)!) && (
                 <div className="flex items-center space-x-1 text-yellow-400">
                   <Crown size={12} />
                   <span className="text-xs">Admin</span>

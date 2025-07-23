@@ -1,17 +1,19 @@
-import { 
-  collection, 
-  doc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  getDocs, 
+import {
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs,
   getDoc,
-  query, 
-  where, 
-  orderBy, 
+  setDoc,
+  runTransaction,
+  query,
+  where,
+  orderBy,
   limit,
   serverTimestamp,
-  Timestamp 
+  Timestamp
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Community, CommunityMember, JoinRequest, CommunityFilter } from '../types';
@@ -44,6 +46,7 @@ export const createCommunity = async (
       tags: communityData.tags || [],
       memberCount: 1,
       createdBy: creatorId,
+      admins: [creatorId], // CRITICAL FIX: Add admins array for proper permission tracking
       createdAt: serverTimestamp(),
       lastActivity: serverTimestamp(),
       settings: communityData.settings || {
@@ -72,29 +75,53 @@ export const createCommunity = async (
 
     console.log('📝 Writing community document to Firestore:', communityDoc);
 
-    // Create the community document
-    const docRef = await addDoc(communitiesRef, communityDoc);
-    console.log('✅ Community document created with ID:', docRef.id);
+    // Use transaction to create community and role documents atomically
+    const docRef = await runTransaction(db, async (transaction) => {
+      // Create the community document
+      const communityRef = doc(communitiesRef);
+      transaction.set(communityRef, communityDoc);
 
-    // Create membership document with composite ID for better querying
-    const membershipId = `${creatorId}_${docRef.id}`;
-    const membershipDoc = {
-      uid: creatorId,
-      communityId: docRef.id,
-      role: 'community_admin',
-      joinedAt: serverTimestamp(),
-      lastActive: serverTimestamp(),
-      // Include creator profile data
-      email: creatorEmail || '',
-      displayName: creatorDisplayName || '',
-      photoURL: '' // We can add this later if needed
-    };
+      // Create membership document
+      const membershipRef = doc(membersRef);
+      const membershipDoc = {
+        uid: creatorId,
+        communityId: communityRef.id,
+        role: 'community_admin',
+        joinedAt: serverTimestamp(),
+        lastActive: serverTimestamp(),
+        // Include creator profile data
+        email: creatorEmail || '',
+        displayName: creatorDisplayName || '',
+        photoURL: '' // We can add this later if needed
+      };
+      transaction.set(membershipRef, membershipDoc);
 
-    console.log('👤 Creating membership document:', { membershipId, membershipDoc });
+      // Note: Role document will be created later via separate process
+      // to avoid security rule conflicts during community creation
 
-    // Use doc() with custom ID instead of addDoc for better querying
-    await addDoc(membersRef, membershipDoc);
-    console.log('✅ Membership document created');
+      return communityRef;
+    });
+
+    console.log('✅ Community and membership documents created atomically with ID:', docRef.id);
+
+    // Create role document separately after a brief delay to ensure community document is committed
+    try {
+      // Small delay to ensure community document is fully committed
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const roleRef = doc(db, 'communities', docRef.id, 'roles', creatorId);
+      await setDoc(roleRef, {
+        role: 'community_admin',
+        assignedAt: serverTimestamp(),
+        assignedBy: creatorId
+      });
+      console.log('✅ Creator role document created');
+    } catch (roleError) {
+      console.warn('⚠️ Failed to create creator role document:', roleError);
+      console.warn('Role error details:', roleError);
+      // Don't fail the whole operation - the community was created successfully
+      // The creator will still be recognized as admin via the createdBy field
+    }
 
     // Return the community object with the generated ID
     const community: Community = {
@@ -107,6 +134,7 @@ export const createCommunity = async (
       tags: communityDoc.tags,
       memberCount: communityDoc.memberCount,
       createdBy: creatorId,
+      admins: [creatorId], // Include admins array
       createdAt: new Date(), // Use current date for immediate UI update
       lastActivity: new Date(),
       settings: communityDoc.settings,
@@ -174,6 +202,7 @@ export const getAllPublicCommunities = async (): Promise<Community[]> => {
             tags: data.tags || [],
             memberCount: data.memberCount || 0,
             createdBy: data.createdBy || '',
+            admins: data.admins || [data.createdBy || ''], // Include admins array with fallback
             createdAt: data.createdAt?.toDate() || new Date(),
             lastActivity: data.lastActivity?.toDate() || new Date(),
             settings: data.settings || {
@@ -313,47 +342,65 @@ export const getCommunities = async (filters?: CommunityFilter): Promise<Communi
 
 export const getUserCommunities = async (userId: string): Promise<Community[]> => {
   try {
+    console.log('🔍 [SERVICE] Getting communities for user:', userId);
+
     // Get user's community memberships
     const membershipQuery = query(membersRef, where('uid', '==', userId));
     const membershipSnapshot = await getDocs(membershipQuery);
-    
+
     const communityIds = membershipSnapshot.docs.map(doc => doc.data().communityId);
-    
+    console.log('📋 [SERVICE] Found', communityIds.length, 'community memberships');
+
     if (communityIds.length === 0) {
       return [];
     }
 
-    // Get community details
+    // Optimize: Use batch queries for better performance
+    // Firestore 'in' queries support up to 10 items, so we need to chunk
     const communities: Community[] = [];
-    
-    // Note: In a real implementation, you'd want to batch these requests
-    // or use a different query structure for better performance
-    for (const communityId of communityIds) {
-      const communityDoc = await getDoc(doc(communitiesRef, communityId));
-      if (communityDoc.exists()) {
-        const data = communityDoc.data();
-        communities.push({
-          id: communityDoc.id,
-          name: data.name,
-          description: data.description,
-          category: data.category,
-          visibility: data.visibility,
-          requiresApproval: data.requiresApproval,
-          tags: data.tags || [],
-          memberCount: data.memberCount || 0,
-          createdBy: data.createdBy,
-          createdAt: data.createdAt?.toDate() || new Date(),
-          lastActivity: data.lastActivity?.toDate() || new Date(),
-          settings: data.settings,
-          bannerUrl: data.bannerUrl,
-          iconUrl: data.iconUrl
+    const chunkSize = 10;
+
+    for (let i = 0; i < communityIds.length; i += chunkSize) {
+      const chunk = communityIds.slice(i, i + chunkSize);
+      console.log('🔄 [SERVICE] Loading community chunk:', chunk.length, 'communities');
+
+      try {
+        // Use 'in' query for batch fetching
+        const batchQuery = query(
+          communitiesRef,
+          where('__name__', 'in', chunk)
+        );
+        const batchSnapshot = await getDocs(batchQuery);
+
+        batchSnapshot.forEach((doc) => {
+          const data = doc.data();
+          communities.push({
+            id: doc.id,
+            name: data.name,
+            description: data.description,
+            category: data.category,
+            visibility: data.visibility,
+            requiresApproval: data.requiresApproval,
+            tags: data.tags || [],
+            memberCount: data.memberCount || 0,
+            createdBy: data.createdBy,
+            createdAt: data.createdAt?.toDate() || new Date(),
+            lastActivity: data.lastActivity?.toDate() || new Date(),
+            settings: data.settings,
+            bannerUrl: data.bannerUrl,
+            iconUrl: data.iconUrl
+          });
         });
+      } catch (chunkError) {
+        console.error('❌ [SERVICE] Error loading community chunk:', chunkError);
+        // Continue with next chunk instead of failing completely
       }
     }
 
+    console.log('✅ [SERVICE] Loaded', communities.length, 'communities for user');
     return communities;
   } catch (error) {
-    console.error('Error fetching user communities:', error);
+    console.error('❌ [SERVICE] Error fetching user communities:', error);
     throw new Error('Failed to fetch user communities');
   }
 };
@@ -368,15 +415,11 @@ export const joinCommunity = async (
   try {
     console.log('🤝 [SERVICE] Join community request:', { communityId, userId });
 
-    // First, check if user is already a member
-    const existingMembershipQuery = query(
-      membersRef,
-      where('uid', '==', userId),
-      where('communityId', '==', communityId)
-    );
-    const existingMembership = await getDocs(existingMembershipQuery);
+    // First, check if user is already a member (check role document - most reliable)
+    const roleRef = doc(db, 'communities', communityId, 'roles', userId);
+    const existingRole = await getDoc(roleRef);
 
-    if (!existingMembership.empty) {
+    if (existingRole.exists()) {
       console.log('⚠️ [SERVICE] User is already a member of this community');
       throw new Error('You are already a member of this community');
     }
@@ -460,34 +503,83 @@ export const joinCommunity = async (
         // Don't fail the whole operation if this fails
       }
 
-      // Verify the document was created by reading it back
-      const createdDoc = await getDoc(docRef);
-      if (createdDoc.exists()) {
-        console.log('✅ [SERVICE] Join request verified in Firestore:', createdDoc.data());
-      } else {
-        console.error('❌ [SERVICE] Join request not found after creation!');
-      }
+      console.log('✅ [SERVICE] Join request created successfully');
     } else {
       console.log('🚀 [SERVICE] Joining community directly (no approval required)');
-      // Join directly - include user profile data for easier access
-      await addDoc(membersRef, {
-        uid: userId,
-        communityId,
-        role: 'community_member',
-        joinedAt: serverTimestamp(),
-        lastActive: serverTimestamp(),
-        // Store user profile data for easier access
-        email: userEmail || '',
-        displayName: userDisplayName || '',
-        photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
-      });
 
-      // Update member count
-      await updateDoc(doc(communitiesRef, communityId), {
-        memberCount: (communityData.memberCount || 0) + 1,
-        lastActivity: serverTimestamp()
-      });
-      console.log('✅ [SERVICE] User joined community successfully');
+      // CRITICAL FIX: Improved join flow with better race condition handling
+      try {
+        // First, check if user is already a member using a simple query
+        const existingMemberQuery = query(
+          membersRef,
+          where('uid', '==', userId),
+          where('communityId', '==', communityId)
+        );
+        const existingMemberSnapshot = await getDocs(existingMemberQuery);
+
+        if (!existingMemberSnapshot.empty) {
+          throw new Error('You are already a member of this community');
+        }
+
+        // Use transaction for atomic operations
+        await runTransaction(db, async (transaction) => {
+          // Get current community data for member count
+          const communityRef = doc(communitiesRef, communityId);
+          const communitySnapshot = await transaction.get(communityRef);
+
+          if (!communitySnapshot.exists()) {
+            throw new Error('Community not found');
+          }
+
+          const currentCommunityData = communitySnapshot.data();
+
+          // Create membership document with composite ID for better querying
+          const membershipId = `${userId}_${communityId}`;
+          const membershipRef = doc(membersRef, membershipId);
+          transaction.set(membershipRef, {
+            uid: userId,
+            communityId,
+            role: 'community_member',
+            joinedAt: serverTimestamp(),
+            lastActive: serverTimestamp(),
+            // Store user profile data for easier access
+            email: userEmail || '',
+            displayName: userDisplayName || '',
+            photoURL: '' // We don't have photoURL in the join parameters, but we can add it later
+          });
+
+          // Create role document in community roles subcollection
+          const roleRef = doc(db, 'communities', communityId, 'roles', userId);
+          transaction.set(roleRef, {
+            role: 'community_member',
+            assignedAt: serverTimestamp(),
+            assignedBy: userId // Self-assigned when joining
+          });
+
+          // Update member count
+          transaction.update(communityRef, {
+            memberCount: (currentCommunityData.memberCount || 0) + 1,
+            lastActivity: serverTimestamp()
+          });
+        });
+
+        console.log('✅ [SERVICE] User joined community successfully (atomic transaction)');
+      } catch (transactionError) {
+        console.error('❌ [SERVICE] Transaction failed during join:', transactionError);
+
+        // Handle specific transaction errors
+        if (transactionError instanceof Error) {
+          if (transactionError.message.includes('permission-denied')) {
+            throw new Error('Permission denied: Unable to join this community. Please check if the community allows new members.');
+          } else if (transactionError.message.includes('already exists')) {
+            throw new Error('You are already a member of this community');
+          } else {
+            throw new Error(`Failed to join community: ${transactionError.message}`);
+          }
+        } else {
+          throw new Error('Failed to join community due to an unexpected error');
+        }
+      }
     }
   } catch (error) {
     console.error('❌ [SERVICE] Error joining community:', error);
@@ -508,6 +600,14 @@ export const leaveCommunity = async (communityId: string, userId: string): Promi
     if (!membershipSnapshot.empty) {
       const memberDoc = membershipSnapshot.docs[0];
       await deleteDoc(memberDoc.ref);
+
+      // Remove role document
+      const roleRef = doc(db, 'communities', communityId, 'roles', userId);
+      try {
+        await deleteDoc(roleRef);
+      } catch (roleError) {
+        console.warn('Failed to delete role document (may not exist):', roleError);
+      }
 
       // Update member count
       const communityDoc = await getDoc(doc(communitiesRef, communityId));
@@ -721,8 +821,10 @@ export const approveJoinRequest = async (requestId: string, reviewerId: string):
 
     const requestData = requestDoc.data();
     
-    // Add user as member - include profile data from the join request
-    await addDoc(membersRef, {
+    // CRITICAL FIX: Add user as member with composite ID for consistency
+    const membershipId = `${requestData.userId}_${requestData.communityId}`;
+    const membershipRef = doc(membersRef, membershipId);
+    await setDoc(membershipRef, {
       uid: requestData.userId,
       communityId: requestData.communityId,
       role: 'community_member',
@@ -732,6 +834,14 @@ export const approveJoinRequest = async (requestId: string, reviewerId: string):
       email: requestData.userEmail || '',
       displayName: requestData.userDisplayName || '',
       photoURL: '' // We don't have photoURL in join requests, but we can add it later
+    });
+
+    // Create role document in community roles subcollection
+    const roleRef = doc(db, 'communities', requestData.communityId, 'roles', requestData.userId);
+    await setDoc(roleRef, {
+      role: 'community_member',
+      assignedAt: serverTimestamp(),
+      assignedBy: reviewerId // Assigned by the admin who approved
     });
 
     // Update join request status

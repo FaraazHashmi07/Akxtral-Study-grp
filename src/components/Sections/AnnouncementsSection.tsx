@@ -14,7 +14,8 @@ export const AnnouncementsSection: React.FC = () => {
   const { user } = useAuthStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  const communityAnnouncements = activeCommunity?.id ? announcements[activeCommunity.id] || [] : [];
+  // SECURITY FIX: Only show announcements if user is authenticated and has active community
+  const communityAnnouncements = (activeCommunity?.id && user) ? announcements[activeCommunity.id] || [] : [];
 
   // Check if user is admin - using enhanced function that includes creator check
   const isAdmin = user && activeCommunity ?
@@ -45,16 +46,29 @@ export const AnnouncementsSection: React.FC = () => {
 
   // Load announcements when component mounts or community changes
   useEffect(() => {
-    if (activeCommunity?.id) {
+    if (activeCommunity?.id && user) {
       console.log('📢 [ANNOUNCEMENTS] Loading announcements for community:', activeCommunity.id);
-      loadAnnouncements(activeCommunity.id);
 
-      // Mark announcements as read when user opens this section
-      markAnnouncementsAsRead(activeCommunity.id);
+      // CRITICAL FIX: Add delay to ensure membership validation completes first
+      const loadTimer = setTimeout(() => {
+        // Double-check user is still authenticated and community is still active
+        if (user && activeCommunity?.id) {
+          loadAnnouncements(activeCommunity.id);
+          markAnnouncementsAsRead(activeCommunity.id);
+        }
+      }, 100); // Small delay to allow membership validation to complete
+
+      return () => clearTimeout(loadTimer);
+    } else if (!user) {
+      console.warn('⚠️ [ANNOUNCEMENTS] User not authenticated, skipping announcement load');
     }
-  }, [activeCommunity?.id, loadAnnouncements, markAnnouncementsAsRead]);
+  }, [activeCommunity?.id, user, loadAnnouncements, markAnnouncementsAsRead]);
 
-  if (!activeCommunity) return null;
+  // SECURITY CHECK: Don't render if no active community or user not authenticated
+  if (!activeCommunity || !user) {
+    console.log('🚫 [ANNOUNCEMENTS] Blocking render - missing community or user authentication');
+    return null;
+  }
 
   return (
     <>

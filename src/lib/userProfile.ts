@@ -187,7 +187,7 @@ export const getCommunityRole = async (
   try {
     const roleRef = doc(db, 'communities', communityId, 'roles', uid);
     const roleSnap = await getDoc(roleRef);
-    
+
     if (roleSnap.exists()) {
       return roleSnap.data() as CommunityRole;
     }
@@ -195,6 +195,72 @@ export const getCommunityRole = async (
   } catch (error) {
     console.error('Error getting community role:', error);
     return null;
+  }
+};
+
+// Get all community roles for a user - SUPER OPTIMIZED VERSION
+export const getAllCommunityRoles = async (uid: string): Promise<Record<string, CommunityRole>> => {
+  try {
+    console.log('🔍 [PROFILE] Loading community roles for user:', uid);
+    const startTime = Date.now();
+
+    // OPTIMIZATION: Use the existing membership data to only query communities user is actually in
+    const membersRef = collection(db, 'communityMembers');
+    const memberQuery = query(membersRef, where('uid', '==', uid));
+    const memberSnapshot = await getDocs(memberQuery);
+
+    if (memberSnapshot.empty) {
+      console.log('✅ [PROFILE] No community memberships found for user');
+      return {};
+    }
+
+    const communityRoles: Record<string, CommunityRole> = {};
+    const communityIds = memberSnapshot.docs.map(doc => doc.data().communityId);
+
+    console.log('🔍 [PROFILE] Checking roles for', communityIds.length, 'communities');
+
+    // Batch the role queries for better performance
+    const rolePromises = communityIds.map(async (communityId) => {
+      try {
+        const roleRef = doc(db, 'communities', communityId, 'roles', uid);
+        const roleSnap = await getDoc(roleRef);
+
+        if (roleSnap.exists()) {
+          const roleData = roleSnap.data() as CommunityRole;
+          communityRoles[communityId] = roleData;
+          console.log('✅ [PROFILE] Found role for community:', communityId, roleData.role);
+        } else {
+          // This is expected - membership might exist but role document might be missing
+          // Create a default role to prevent future queries
+          console.log('⚠️ [PROFILE] Missing role document for community:', communityId, '- using default');
+          communityRoles[communityId] = {
+            role: 'community_member',
+            assignedAt: new Date(),
+            assignedBy: uid
+          };
+        }
+      } catch (roleError) {
+        console.warn('⚠️ [PROFILE] Failed to get role for community:', communityId, roleError);
+        // Use default role to prevent future errors
+        communityRoles[communityId] = {
+          role: 'community_member',
+          assignedAt: new Date(),
+          assignedBy: uid
+        };
+      }
+    });
+
+    // Execute all role queries in parallel
+    await Promise.all(rolePromises);
+
+    const endTime = Date.now();
+    console.log('✅ [PROFILE] Loaded community roles in', endTime - startTime, 'ms:',
+                Object.keys(communityRoles).length, 'roles found');
+
+    return communityRoles;
+  } catch (error) {
+    console.error('❌ [PROFILE] Error getting community roles:', error);
+    return {};
   }
 };
 

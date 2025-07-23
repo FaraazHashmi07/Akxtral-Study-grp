@@ -10,12 +10,20 @@ export const HomeSection: React.FC = () => {
   const { openModal } = useUIStore();
   const { user } = useAuthStore();
 
-  const recentCommunities = joinedCommunities.slice(0, 6);
+  // Deduplicate communities by ID to prevent React key conflicts
+  const uniqueCommunities = joinedCommunities.reduce((acc, community) => {
+    if (!acc.find(c => c.id === community.id)) {
+      acc.push(community);
+    }
+    return acc;
+  }, [] as typeof joinedCommunities);
+
+  const recentCommunities = uniqueCommunities.slice(0, 6);
 
   const stats = [
     {
       label: 'Communities Joined',
-      value: joinedCommunities.length,
+      value: uniqueCommunities.length,
       icon: Users,
       color: 'text-blue-600 dark:text-blue-400'
     },
@@ -136,7 +144,7 @@ export const HomeSection: React.FC = () => {
         )}
 
         {/* Empty State */}
-        {joinedCommunities.length === 0 && (
+        {uniqueCommunities.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

@@ -100,6 +100,9 @@ interface ExtendedChatState extends ChatState {
   // Utility
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
+
+  // Cleanup
+  unsubscribeAll: () => void;
 }
 
 export const useChatStore = create<ExtendedChatState>((set, get) => ({
@@ -1466,5 +1469,59 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
 
   // Utility functions
   setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error })
+  setError: (error) => set({ error }),
+
+  // CRITICAL FIX: Cleanup all subscriptions on logout
+  unsubscribeAll: () => {
+    console.log('🧹 [CHAT] Unsubscribing from all chat listeners...');
+    const { unsubscribeMessages, unsubscribeTyping, unsubscribeThreads } = get();
+
+    // Unsubscribe from message listeners
+    Object.keys(unsubscribeMessages).forEach(communityId => {
+      try {
+        unsubscribeMessages[communityId]();
+        console.log(`✅ [CHAT] Unsubscribed from messages: ${communityId}`);
+      } catch (error) {
+        console.warn(`⚠️ [CHAT] Error unsubscribing from messages ${communityId}:`, error);
+      }
+    });
+
+    // Unsubscribe from typing listeners
+    Object.keys(unsubscribeTyping).forEach(communityId => {
+      try {
+        unsubscribeTyping[communityId]();
+        console.log(`✅ [CHAT] Unsubscribed from typing: ${communityId}`);
+      } catch (error) {
+        console.warn(`⚠️ [CHAT] Error unsubscribing from typing ${communityId}:`, error);
+      }
+    });
+
+    // Unsubscribe from thread listeners
+    Object.keys(unsubscribeThreads).forEach(messageId => {
+      try {
+        unsubscribeThreads[messageId]();
+        console.log(`✅ [CHAT] Unsubscribed from thread: ${messageId}`);
+      } catch (error) {
+        console.warn(`⚠️ [CHAT] Error unsubscribing from thread ${messageId}:`, error);
+      }
+    });
+
+    // Clear all subscriptions and reset state
+    set({
+      unsubscribeMessages: {},
+      unsubscribeTyping: {},
+      unsubscribeThreads: {},
+      messages: {},
+      pinnedMessages: {},
+      typingIndicators: [],
+      threads: {},
+      threadMessages: {},
+      activeThread: null,
+      threadSidebarOpen: false,
+      loading: false,
+      error: null
+    });
+
+    console.log('✅ [CHAT] All listeners cleaned up');
+  }
 }));

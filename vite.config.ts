@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
-export default defineConfig(({ command, mode }) => {
+export default defineConfig(({ command }) => {
   // Determine base path based on environment
   // For development: use root path '/'
   // For Netlify: use root path '/'
@@ -14,7 +14,13 @@ export default defineConfig(({ command, mode }) => {
   return {
     plugins: [react()],
     base,
-  build: {
+    server: {
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+        'Cross-Origin-Embedder-Policy': 'unsafe-none'
+      }
+    },
+    build: {
     // Ensure proper asset handling
     assetsDir: 'assets',
     // Generate source maps for debugging

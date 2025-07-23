@@ -92,16 +92,19 @@ export const useUIStore = create<UIStore>()(
       // Sidebar management
       toggleSidebar: () => {
         const { sidebarCollapsed } = get();
+        console.log('🔄 [UI] Toggling sidebar:', !sidebarCollapsed);
         set({ sidebarCollapsed: !sidebarCollapsed });
       },
 
       setSidebarCollapsed: (collapsed) => {
+        console.log('🔄 [UI] Setting sidebar collapsed:', collapsed);
         set({ sidebarCollapsed: collapsed });
       },
 
       // Modal management
       openModal: (modalId, data) => {
         const { modals } = get();
+        console.log('🔄 [UI] Opening modal:', modalId);
         set({
           activeModal: modalId,
           modals: { ...modals, [modalId]: data || {} }
@@ -110,9 +113,10 @@ export const useUIStore = create<UIStore>()(
 
       closeModal: (modalId) => {
         const { activeModal, modals } = get();
+        console.log('🔄 [UI] Closing modal:', modalId || 'current');
         if (modalId) {
           const { [modalId]: removed, ...remainingModals } = modals;
-          set({ 
+          set({
             modals: remainingModals,
             activeModal: activeModal === modalId ? null : activeModal
           });

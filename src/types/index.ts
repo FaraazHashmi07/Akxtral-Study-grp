@@ -97,6 +97,7 @@ export interface Community {
   requiresApproval: boolean;
   memberCount: number;
   createdBy: string;
+  admins: string[]; // CRITICAL FIX: Add admins array for proper permission tracking
   createdAt: Date;
   lastActivity: Date;
   settings: CommunitySettings;

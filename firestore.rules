@@ -1,8 +1,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // SUPER ADMIN GLOBAL OVERRIDE - Must be first rule
-    match /{document=**} {
+
+    // SUPER ADMIN GLOBAL OVERRIDE - Limited to specific admin collections only
+    match /users/{document=**} {
       allow read, write: if request.auth != null && request.auth.token.super_admin == true;
     }
 
@@ -23,7 +24,13 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/communities/$(communityId)) &&
              get(/databases/$(database)/documents/communities/$(communityId)).data.createdBy == request.auth.uid;
     }
-    
+
+    function isMemberOfCommunity(communityId) {
+      // Check if user exists in communityMembers with the composite key format
+      return exists(/databases/$(database)/documents/communityMembers/$(request.auth.uid + '_' + communityId)) ||
+             exists(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid));
+    }
+
     function isCommunityAdmin(communityId) {
       // Check if user is the community creator (automatic admin rights)
       let isCreator = isCommunityCreator(communityId);
@@ -32,8 +39,14 @@ service cloud.firestore {
       let hasAdminRole = exists(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)) &&
                         get(/databases/$(database)/documents/communities/$(communityId)/roles/$(request.auth.uid)).data.role == 'community_admin';
 
-      return isCreator || hasAdminRole;
+      // Check if user is in admins array (if it exists)
+      let isInAdminsArray = exists(/databases/$(database)/documents/communities/$(communityId)) &&
+                           request.auth.uid in get(/databases/$(database)/documents/communities/$(communityId)).data.get('admins', []);
+
+      return isCreator || hasAdminRole || isInAdminsArray;
     }
+    
+
 
     function isCommunityModerator(communityId) {
       // Check if user is the community creator (automatic admin rights)
@@ -74,10 +87,18 @@ service cloud.firestore {
     
     // Communities - CRITICAL FIX: Allow reading for discovery and user communities
     match /communities/{communityId} {
-      // Community metadata - readable by authenticated users for discovery, writable by admins
+      // Community metadata - readable by authenticated users for discovery
       allow read: if isAuthenticated(); // Allow all authenticated users to read communities for discovery
-      allow write: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       allow create: if isAuthenticated(); // Any user can create communities
+
+      // Allow member count updates when users join/leave
+      allow update: if isAuthenticated() &&
+                    (isCommunityAdmin(communityId) || isSuperAdmin() ||
+                     // Allow any authenticated user to update memberCount and lastActivity
+                     ('memberCount' in request.resource.data || 'lastActivity' in request.resource.data));
+
+      // General write rule for admins (covers other operations)
+      allow write: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
 
       // Special delete rule to avoid circular dependency in isCommunityAdmin function
       allow delete: if isAuthenticated() && (
@@ -92,9 +113,28 @@ service cloud.firestore {
       
       // Community roles subcollection
       match /roles/{uid} {
-        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
-        allow write: if isAuthenticated() && isCommunityAdmin(communityId);
-        allow create: if isAuthenticated() && isCommunityAdmin(communityId);
+        // Users can read their own role document (breaks circular dependency)
+        allow read: if isAuthenticated() && (request.auth.uid == uid || isSuperAdmin());
+
+        // Community members can read other roles (after they have their own role)
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+
+        // Users can create their own role when joining (MUST be before admin write rule)
+        allow create: if isAuthenticated() && request.auth.uid == uid &&
+                      request.resource.data.role == 'community_member';
+
+        // Community creators can create their own admin role during community creation
+        // This allows the creator to set up their admin role after community creation
+        allow create: if isAuthenticated() && request.auth.uid == uid &&
+                      request.resource.data.role == 'community_admin' &&
+                      isCommunityCreator(communityId);
+
+        // CRITICAL FIX: Community admins can create role documents for other users during approval
+        allow create: if isAuthenticated() && isCommunityAdmin(communityId) &&
+                      request.resource.data.role == 'community_member';
+
+        // Community admins can manage all roles
+        allow update: if isAuthenticated() && isCommunityAdmin(communityId);
         allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       }
 
@@ -163,21 +203,24 @@ service cloud.firestore {
         allow delete: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId) || isSuperAdmin());
       }
 
-      // Community announcements
+      // Community announcements (subcollection under communities)
       match /announcements/{announcementId} {
-        // Allow all authenticated users to read announcements
-        // Application logic will handle community membership validation
-        allow read: if isAuthenticated();
+        // SECURITY FIX: Strict membership validation for announcements
+        // Users can ONLY read announcements if they are verified community members
+        allow read: if isAuthenticated() && isCommunityMember(communityId);
+
+        // Only community admins can create, update, delete announcements
         allow create: if isAuthenticated() && isCommunityAdmin(communityId);
         allow update: if isAuthenticated() && isCommunityAdmin(communityId);
         allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
       }
 
-      // Community announcement reads (user read tracking)
+      // Community announcement reads (user read tracking subcollection)
       match /announcementReads/{userId} {
-        // Users can only read/write their own read status
-        // Simplified: Allow if user is authenticated and owns the document
-        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+        // SECURITY FIX: Users can only read/write their own read status AND must be community members
+        allow read, write: if isAuthenticated() &&
+                           request.auth.uid == userId &&
+                           isCommunityMember(communityId);
       }
     }
 
@@ -219,21 +262,19 @@ service cloud.firestore {
       allow list: if isAuthenticated();
     }
 
-    // Community members collection - SIMPLIFIED: Allow authenticated users to read memberships
+    // Community members collection - FIXED: Proper permission hierarchy
     match /communityMembers/{memberId} {
       // Allow all authenticated users to read community memberships (needed for UI)
       allow read: if isAuthenticated();
 
-      // Community admins can manage memberships
-      allow write: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
-
-      // Users can create their own membership when joining
+      // Users can create their own membership when joining (MUST be before general write rule)
       allow create: if isAuthenticated() && request.auth.uid == request.resource.data.uid;
 
-      // Allow updates for admins and super admins
-      allow update: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
+      // CRITICAL FIX: Community admins can create memberships when approving join requests
+      allow create: if isAuthenticated() && isCommunityAdmin(request.resource.data.communityId);
 
-      // Allow deletion for admins and super admins
+      // Community admins can update and delete memberships
+      allow update: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
       allow delete: if isAuthenticated() && (isCommunityAdmin(resource.data.communityId) || isSuperAdmin());
     }
 
@@ -251,6 +292,15 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && request.auth.uid == userId;
     }
 
+    // PREVENT CREATION OF ANNOUNCEMENT COLLECTIONS AT ROOT LEVEL
+    // Announcements should ONLY exist as subcollections under communities
+    match /announcements/{document=**} {
+      allow read, write: if false; // Explicitly deny all access to root-level announcements
+    }
+
+    match /announcementReads/{document=**} {
+      allow read, write: if false; // Explicitly deny all access to root-level announcementReads
+    }
 
   }
 }

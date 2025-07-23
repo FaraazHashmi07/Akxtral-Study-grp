@@ -9,12 +9,24 @@ export const hasCommunityRole = (
   communityId: string,
   roles: CommunityRole['role'][]
 ): boolean => {
-  if (!user) return false;
+  if (!user || !communityId) return false;
 
   const communityRole = user.communityRoles?.[communityId];
-  if (!communityRole) return false;
+  if (!communityRole) {
+    console.log('🔍 [AUTH] No community role found for user:', user.uid, 'in community:', communityId);
+    return false;
+  }
 
-  return roles.includes(communityRole.role);
+  const hasRole = roles.includes(communityRole.role);
+  console.log('🔍 [AUTH] Role check:', {
+    userId: user.uid,
+    communityId,
+    userRole: communityRole.role,
+    requiredRoles: roles,
+    hasRole
+  });
+
+  return hasRole;
 };
 
 // Check if user is community admin
@@ -28,7 +40,11 @@ export const isCommunityAdminEnhanced = (
   communityId: string,
   community?: Community | null
 ): boolean => {
-  if (!user) return false;
+  if (!user || !communityId) return false;
+
+  // SECURITY: Ensure only legitimate admin status, no fallbacks for regular users
+  // Only the designated Super Admin email should have any elevated privileges
+  const isSuperAdmin = user.email === '160422747039@mjcollege.ac.in';
 
   // Check role-based admin status
   const hasAdminRole = hasCommunityRole(user, communityId, ['community_admin']);
@@ -36,7 +52,21 @@ export const isCommunityAdminEnhanced = (
   // Check if user is the community creator
   const isCreator = community ? user.uid === community.createdBy : false;
 
-  return hasAdminRole || isCreator;
+  // Regular users should only be admin if they have explicit role or created the community
+  const isAdmin = hasAdminRole || isCreator;
+
+  console.log('🔐 [AUTH] Enhanced admin check:', {
+    userId: user.uid,
+    userEmail: user.email,
+    communityId,
+    communityCreatedBy: community?.createdBy,
+    hasAdminRole,
+    isCreator,
+    isSuperAdmin,
+    finalResult: isAdmin
+  });
+
+  return isAdmin;
 };
 
 // Check if user is community moderator or higher

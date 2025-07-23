@@ -8,6 +8,8 @@ import {
 } from '../types';
 import * as communityService from '../services/communityService';
 import { useAuthStore } from './authStore';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
 
 interface CommunityState {
   // State
@@ -20,9 +22,13 @@ interface CommunityState {
   loading: boolean;
   error: string | null;
 
+  // Performance optimization
+  lastLoadedUserId: string | null;
+  lastLoadTime: number;
+
   // Actions
   loadCommunities: () => Promise<void>;
-  loadJoinedCommunities: () => Promise<void>;
+  loadJoinedCommunities: (forceRefresh?: boolean) => Promise<void>;
   setActiveCommunity: (community: Community | null) => void;
   createCommunity: (data: Partial<Community>) => Promise<Community>;
   updateCommunity: (id: string, updates: Partial<Community>) => Promise<void>;
@@ -44,9 +50,13 @@ interface CommunityState {
   searchCommunities: (query: string, filters?: CommunityFilter) => Promise<Community[]>;
   discoverCommunities: (filters?: CommunityFilter) => Promise<Community[]>;
   isUserMemberOfCommunity: (communityId: string) => boolean;
+  checkMembershipDirect: (communityId: string) => Promise<boolean>;
   
   // Analytics
   loadCommunityAnalytics: (communityId: string) => Promise<void>;
+
+  // Cleanup
+  reset: () => void;
 }
 
 export const useCommunityStore = create<CommunityState>((set, get) => ({
@@ -59,6 +69,8 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
   analytics: {},
   loading: false,
   error: null,
+  lastLoadedUserId: null,
+  lastLoadTime: 0,
 
   // Load all public communities for discovery
   loadCommunities: async () => {
@@ -80,26 +92,73 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
     }
   },
 
-  // Load communities the user has joined
-  loadJoinedCommunities: async () => {
+  // Load communities the user has joined with caching
+  loadJoinedCommunities: async (forceRefresh = false) => {
+    const { lastLoadedUserId, lastLoadTime, loading } = get();
+    const user = useAuthStore.getState().user;
+
+    if (!user) {
+      console.log('👤 [STORE] No user found, clearing joined communities');
+      set({
+        joinedCommunities: [],
+        loading: false,
+        lastLoadedUserId: null,
+        lastLoadTime: 0
+      });
+      return;
+    }
+
+    // Performance optimization: Skip if already loading for same user
+    if (loading && lastLoadedUserId === user.uid) {
+      console.log('⏳ [STORE] Already loading communities for user:', user.uid);
+      return;
+    }
+
+    // Cache check: Skip if recently loaded for same user (within 30 seconds)
+    const now = Date.now();
+    const cacheValidTime = 30 * 1000; // 30 seconds
+    if (!forceRefresh &&
+        lastLoadedUserId === user.uid &&
+        (now - lastLoadTime) < cacheValidTime) {
+      console.log('💾 [STORE] Using cached communities for user:', user.uid,
+                  'age:', Math.round((now - lastLoadTime) / 1000), 'seconds');
+      return;
+    }
+
     set({ loading: true, error: null });
     try {
-      const user = useAuthStore.getState().user;
-      if (!user) {
-        console.log('👤 [STORE] No user found, clearing joined communities');
-        set({ joinedCommunities: [], loading: false });
-        return;
-      }
+      console.log('📋 [STORE] Loading joined communities for user:', user.uid,
+                  forceRefresh ? '(forced refresh)' : '');
 
-      console.log('📋 [STORE] Loading joined communities for user:', user.uid);
       const joinedCommunities = await communityService.getUserCommunities(user.uid);
       console.log('✅ [STORE] Loaded joined communities:', joinedCommunities.map(c => c.name));
-      set({ joinedCommunities, loading: false });
+
+      // Only update if we still have the same user (prevent race conditions)
+      const currentUser = useAuthStore.getState().user;
+      if (currentUser && currentUser.uid === user.uid) {
+        set({
+          joinedCommunities,
+          loading: false,
+          lastLoadedUserId: user.uid,
+          lastLoadTime: now
+        });
+      } else {
+        console.log('⚠️ [STORE] User changed during load, discarding results');
+        set({
+          joinedCommunities: [],
+          loading: false,
+          lastLoadedUserId: null,
+          lastLoadTime: 0
+        });
+      }
     } catch (error) {
       console.error('❌ [STORE] Failed to load joined communities:', error);
       set({
+        joinedCommunities: [], // Clear on error to prevent stale data
         error: error instanceof Error ? error.message : 'Failed to load joined communities',
-        loading: false
+        loading: false,
+        lastLoadedUserId: null,
+        lastLoadTime: 0
       });
     }
   },
@@ -251,9 +310,14 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
         user.email || ''
       );
 
-      // Reload joined communities to reflect the change and wait for completion
-      console.log('🔄 [STORE] Reloading joined communities after join...');
-      await get().loadJoinedCommunities();
+      console.log('✅ [STORE] Join community service call completed successfully');
+
+      // Optimized: Refresh both communities and roles in parallel for better performance
+      console.log('🔄 [STORE] Refreshing communities and roles after join...');
+      const [_, __] = await Promise.all([
+        get().loadJoinedCommunities(true), // Force refresh communities
+        useAuthStore.getState().refreshCommunityRoles() // Refresh roles
+      ]);
 
       // Log the updated state for debugging
       const { joinedCommunities } = get();
@@ -263,6 +327,17 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       set({ loading: false });
     } catch (error) {
       console.error('❌ [STORE] Failed to join community:', error);
+
+      // Always reload communities to ensure UI reflects actual backend state
+      // This handles cases where the operation partially succeeded
+      try {
+        console.log('🔄 [STORE] Reloading communities after error to sync state...');
+        // Only reload communities on error, skip roles refresh to save time
+        await get().loadJoinedCommunities(true); // Force refresh
+      } catch (reloadError) {
+        console.warn('⚠️ [STORE] Failed to reload communities after error:', reloadError);
+      }
+
       set({
         error: error instanceof Error ? error.message : 'Failed to join community',
         loading: false
@@ -436,11 +511,44 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
 
   // Check if user is a member of a community
   isUserMemberOfCommunity: (communityId: string): boolean => {
-    const { joinedCommunities } = get();
-    const isMember = joinedCommunities.some(community => community.id === communityId);
+    const { joinedCommunities, loading } = get();
+
+    // If still loading, be conservative and assume not a member
+    // This prevents false positives during initial load
+    if (loading) {
+      console.log('⏳ [STORE] Still loading memberships, assuming not a member for:', communityId);
+      return false;
+    }
+
+    // Additional safety check - ensure joinedCommunities is an array
+    if (!Array.isArray(joinedCommunities)) {
+      console.warn('⚠️ [STORE] joinedCommunities is not an array:', joinedCommunities);
+      return false;
+    }
+
+    const isMember = joinedCommunities.some(community => community && community.id === communityId);
     console.log('🔍 [STORE] Checking membership for community:', communityId, 'Result:', isMember);
-    console.log('🔍 [STORE] User\'s joined communities:', joinedCommunities.map(c => c.id));
+    console.log('🔍 [STORE] User\'s joined communities:', joinedCommunities.map(c => c?.id || 'undefined'));
     return isMember;
+  },
+
+  // Immediate membership check using Firestore (for critical operations)
+  checkMembershipDirect: async (communityId: string): Promise<boolean> => {
+    try {
+      const user = useAuthStore.getState().user;
+      if (!user) return false;
+
+      // Check role document directly - this is the most reliable method
+      const roleRef = doc(db, 'communities', communityId, 'roles', user.uid);
+      const roleSnap = await getDoc(roleRef);
+
+      const isMember = roleSnap.exists();
+      console.log('🔍 [STORE] Direct membership check for:', communityId, 'Result:', isMember);
+      return isMember;
+    } catch (error) {
+      console.error('❌ [STORE] Failed direct membership check:', error);
+      return false;
+    }
   },
 
   // Discover communities with filters
@@ -484,5 +592,23 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
     } catch (error) {
       console.error('Failed to load community analytics:', error);
     }
+  },
+
+  // CRITICAL FIX: Reset store to prevent data leakage between users
+  reset: () => {
+    console.log('🧹 [COMMUNITY] Resetting community store...');
+    set({
+      communities: [],
+      joinedCommunities: [],
+      activeCommunity: null,
+      communityMembers: {},
+      joinRequests: [],
+      analytics: {},
+      loading: false,
+      error: null,
+      lastLoadedUserId: null,
+      lastLoadTime: 0
+    });
+    console.log('✅ [COMMUNITY] Store reset complete');
   }
 }));

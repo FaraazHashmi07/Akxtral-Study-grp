@@ -7,8 +7,10 @@ import {
   signInWithGoogle,
   signOutUser,
   getUserProfile,
-  createUserProfile
+  createUserProfile,
+  handleRedirectResult
 } from '../lib/auth';
+import { getAllCommunityRoles } from '../lib/userProfile';
 import { User, AuthState, SuperAdminState } from '../types';
 import { useNotificationStore } from './notificationStore';
 
@@ -53,6 +55,11 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   // Initialize authentication state listener
   initialize: () => {
     console.log('🔄 Initializing Firebase auth listener...');
+
+    // Check for redirect result first (for COOP fallback)
+    handleRedirectResult().catch((error) => {
+      console.warn('No redirect result or error handling redirect:', error.message);
+    });
 
     // Set a shorter timeout for initial auth check
     const timeoutId = setTimeout(() => {
@@ -126,8 +133,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           console.log('🔄 Attempting background Firestore sync...');
           const firestoreProfile = await getUserProfile(firebaseUser.uid);
           if (firestoreProfile) {
-            console.log('✅ Firestore profile found, updating state');
-            set({ user: firestoreProfile });
+            console.log('✅ Firestore profile found, loading community roles...');
+
+            // Load community roles for the user
+            const communityRoles = await getAllCommunityRoles(firebaseUser.uid);
+            const updatedProfile = { ...firestoreProfile, communityRoles };
+
+            console.log('✅ Community roles loaded, updating state');
+            set({ user: updatedProfile });
           } else {
             console.log('🔄 Creating Firestore profile in background...');
             await createUserProfile(firebaseUser);
@@ -231,6 +244,28 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
+      // CRITICAL FIX: Clean up all real-time listeners before signing out
+      console.log('🧹 [AUTH] Cleaning up listeners before sign out...');
+
+      try {
+        // Clean up announcement listeners
+        const { useAnnouncementStore } = await import('./announcementStore');
+        const announcementStore = useAnnouncementStore.getState();
+        if (announcementStore.unsubscribeAll) {
+          announcementStore.unsubscribeAll();
+        }
+
+        // Clean up chat listeners
+        const { useChatStore } = await import('./chatStore');
+        const chatStore = useChatStore.getState();
+        if (chatStore.unsubscribeAll) {
+          chatStore.unsubscribeAll();
+        }
+      } catch (cleanupError) {
+        console.warn('⚠️ [AUTH] Error during listener cleanup:', cleanupError);
+        // Don't fail sign out if cleanup fails
+      }
+
       await signOutUser();
       console.log('✅ Sign out successful');
       // User state will be updated by onAuthStateChanged listener
@@ -275,14 +310,43 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   setUser: (user: User | null) => {
     set({ user });
 
+    // CRITICAL FIX: Clear all cached data when user changes to prevent data leakage
+    if (!user) {
+      console.log('🧹 [AUTH] User logged out, clearing all cached data...');
+
+      // Clear announcement store data
+      import('./announcementStore').then(({ useAnnouncementStore }) => {
+        const announcementStore = useAnnouncementStore.getState();
+        announcementStore.unsubscribeAll();
+      });
+
+      // Clear community store data
+      import('./communityStore').then(({ useCommunityStore }) => {
+        const communityStore = useCommunityStore.getState();
+        communityStore.reset();
+      });
+
+      // Clear chat store data
+      import('./chatStore').then(({ useChatStore }) => {
+        const chatStore = useChatStore.getState();
+        chatStore.unsubscribeAll();
+      });
+    } else {
+      console.log('🔔 [AUTH] User logged in:', user.uid);
+
+      // Clear any stale data from previous user
+      import('./announcementStore').then(({ useAnnouncementStore }) => {
+        const announcementStore = useAnnouncementStore.getState();
+        announcementStore.unsubscribeAll();
+      });
+    }
+
     // Subscribe to notifications when user logs in, unsubscribe when logs out
     const { subscribeToNotifications, unsubscribeFromNotifications } = useNotificationStore.getState();
 
     if (user) {
-      console.log('🔔 [AUTH] User logged in, subscribing to notifications:', user.uid);
       subscribeToNotifications(user.uid);
     } else {
-      console.log('🔕 [AUTH] User logged out, unsubscribing from notifications');
       unsubscribeFromNotifications();
     }
   },
@@ -312,6 +376,22 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       }
     } catch (error) {
       console.error('❌ Failed to check Super Admin claims:', error);
+    }
+  },
+
+  // Refresh community roles for current user
+  refreshCommunityRoles: async () => {
+    const { user } = get();
+    if (!user) return;
+
+    try {
+      console.log('🔄 [AUTH] Refreshing community roles for user:', user.uid);
+      const communityRoles = await getAllCommunityRoles(user.uid);
+      const updatedUser = { ...user, communityRoles };
+      set({ user: updatedUser });
+      console.log('✅ [AUTH] Community roles refreshed:', communityRoles);
+    } catch (error) {
+      console.error('❌ [AUTH] Failed to refresh community roles:', error);
     }
   }
 }));

@@ -2,6 +2,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut,
   sendEmailVerification,
@@ -252,10 +254,10 @@ export const signInWithEmailAndPasswordAuth = async (
   }
 };
 
-// Sign in with Google
+// Sign in with Google (with COOP error handling)
 export const signInWithGoogle = async (): Promise<UserCredential> => {
   try {
-    console.log('Attempting Google sign-in...');
+    console.log('Attempting Google sign-in with popup...');
     const userCredential = await signInWithPopup(auth, googleProvider);
     console.log('Google sign-in successful:', userCredential.user.uid);
 
@@ -274,14 +276,34 @@ export const signInWithGoogle = async (): Promise<UserCredential> => {
     console.error('Error code:', error.code);
     console.error('Error message:', error.message);
 
-    // Provide user-friendly error messages
+    // Check if this is a COOP-related error or popup blocked
+    const isCoopError = error.message?.includes('Cross-Origin-Opener-Policy') ||
+                       error.message?.includes('window.closed') ||
+                       error.code === 'auth/popup-blocked' ||
+                       error.code === 'auth/popup-closed-by-user';
+
+    if (isCoopError) {
+      console.log('🔄 COOP/popup error detected, falling back to redirect authentication...');
+      try {
+        // Use redirect-based authentication as fallback
+        await signInWithRedirect(auth, googleProvider);
+        // Note: signInWithRedirect doesn't return immediately, it redirects the page
+        // The result will be handled by getRedirectResult on page load
+        throw new Error('Redirecting to Google sign-in...');
+      } catch (redirectError: any) {
+        console.error('Redirect sign-in also failed:', redirectError);
+        throw new Error('Google sign-in unavailable. Please try again or use email/password authentication.');
+      }
+    }
+
+    // Provide user-friendly error messages for other errors
     let userMessage = 'Failed to sign in with Google. ';
     switch (error.code) {
       case 'auth/popup-closed-by-user':
         userMessage += 'Sign-in was cancelled.';
         break;
       case 'auth/popup-blocked':
-        userMessage += 'Pop-up was blocked by your browser. Please allow pop-ups and try again.';
+        userMessage += 'Pop-up was blocked. Redirecting to Google sign-in...';
         break;
       case 'auth/network-request-failed':
         userMessage += 'Network error. Please check your internet connection.';
@@ -296,6 +318,33 @@ export const signInWithGoogle = async (): Promise<UserCredential> => {
     const enhancedError = new Error(userMessage);
     (enhancedError as any).code = error.code;
     throw enhancedError;
+  }
+};
+
+// Handle redirect result (for COOP fallback)
+export const handleRedirectResult = async (): Promise<UserCredential | null> => {
+  try {
+    console.log('Checking for redirect result...');
+    const result = await getRedirectResult(auth);
+
+    if (result) {
+      console.log('Redirect sign-in successful:', result.user.uid);
+
+      // Try to create or update user profile
+      try {
+        await createUserProfile(result.user);
+        console.log('User profile updated in Firestore after redirect');
+      } catch (firestoreError: any) {
+        console.warn('Failed to update user profile in Firestore after redirect:', firestoreError.message);
+      }
+
+      return result;
+    }
+
+    return null;
+  } catch (error: any) {
+    console.error('Error handling redirect result:', error);
+    throw error;
   }
 };
 

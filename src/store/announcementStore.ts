@@ -44,6 +44,9 @@ interface AnnouncementState {
   // Read tracking
   markAnnouncementsAsRead: (communityId: string) => Promise<void>;
   getUnreadCount: (communityId: string) => Promise<number>;
+
+  // Cleanup
+  unsubscribeAll: () => void;
   
   // Real-time subscriptions
   subscribeToAnnouncements: (communityId: string) => void;
@@ -75,9 +78,43 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
         userEmail: user?.email
       });
 
+      if (!user) {
+        console.warn('⚠️ [ANNOUNCEMENTS] User not authenticated, cannot load announcements');
+        set({ loading: false, error: 'User not authenticated' });
+        return;
+      }
+
+      // SECURITY FIX: Verify community membership before loading announcements
+      const { useCommunityStore } = await import('./communityStore');
+      const { isUserMemberOfCommunity, checkMembershipDirect } = useCommunityStore.getState();
+
+      // Check membership using both store and direct Firestore query
+      const isMemberInStore = isUserMemberOfCommunity(communityId);
+      const isMemberDirect = await checkMembershipDirect(communityId);
+
+      console.log('🔒 [ANNOUNCEMENTS] Membership validation:', {
+        communityId,
+        userId: user.uid,
+        isMemberInStore,
+        isMemberDirect
+      });
+
+      if (!isMemberInStore && !isMemberDirect) {
+        console.warn('⚠️ [ANNOUNCEMENTS] User is not a member of this community, blocking announcement access');
+        set({
+          loading: false,
+          error: 'Access denied: You must be a member of this community to view announcements',
+          announcements: {
+            ...get().announcements,
+            [communityId]: [] // Clear any cached announcements for this community
+          }
+        });
+        return;
+      }
+
       set({ loading: true, error: null });
 
-      // First, load existing announcements from Firestore
+      // First, load existing announcements from Firestore with error handling
       const announcementsRef = collection(db, 'communities', communityId, 'announcements');
       console.log('📋 [ANNOUNCEMENTS] Firestore collection path:', `communities/${communityId}/announcements`);
 
@@ -88,8 +125,25 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
       );
 
       console.log('🔍 [ANNOUNCEMENTS] Executing Firestore query...');
-      const snapshot = await getDocs(q);
-      console.log('✅ [ANNOUNCEMENTS] Query executed successfully, documents found:', snapshot.size);
+
+      let snapshot;
+      try {
+        snapshot = await getDocs(q);
+        console.log('✅ [ANNOUNCEMENTS] Query executed successfully, documents found:', snapshot.size);
+      } catch (firestoreError: any) {
+        console.error('❌ [ANNOUNCEMENTS] Firestore query failed:', firestoreError);
+
+        // Handle specific Firestore errors
+        if (firestoreError.code === 'permission-denied') {
+          throw new Error('Access denied: You do not have permission to view announcements for this community');
+        } else if (firestoreError.code === 'unavailable') {
+          throw new Error('Service temporarily unavailable. Please try again later.');
+        } else if (firestoreError.code === 'failed-precondition') {
+          throw new Error('Database connection error. Please check your internet connection.');
+        } else {
+          throw new Error(`Failed to load announcements: ${firestoreError.message}`);
+        }
+      }
       const announcements: Announcement[] = [];
 
       snapshot.forEach((doc) => {
@@ -393,8 +447,23 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
   },
 
   // Subscribe to real-time announcements updates
-  subscribeToAnnouncements: (communityId) => {
+  subscribeToAnnouncements: async (communityId) => {
     console.log('🔌 [ANNOUNCEMENTS] Subscribing to announcements for community:', communityId);
+
+    // SECURITY FIX: Verify membership before subscribing
+    const { user } = useAuthStore.getState();
+    if (!user) {
+      console.warn('⚠️ [ANNOUNCEMENTS] User not authenticated, cannot subscribe to announcements');
+      return;
+    }
+
+    const { useCommunityStore } = await import('./communityStore');
+    const { isUserMemberOfCommunity } = useCommunityStore.getState();
+
+    if (!isUserMemberOfCommunity(communityId)) {
+      console.warn('⚠️ [ANNOUNCEMENTS] User is not a member of this community, blocking subscription');
+      return;
+    }
 
     const { unsubscribeAnnouncements } = get();
 
@@ -444,7 +513,31 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
       });
     }, (error) => {
       console.error('❌ [ANNOUNCEMENTS] Real-time subscription error:', error);
-      set({ error: error.message });
+
+      // Handle subscription errors gracefully
+      if (error.code === 'permission-denied') {
+        console.warn('⚠️ [ANNOUNCEMENTS] Permission denied for real-time updates, clearing announcements');
+        // Clear announcements for this community
+        const { announcements: currentAnnouncements } = get();
+        set({
+          announcements: {
+            ...currentAnnouncements,
+            [communityId]: []
+          },
+          error: 'Access denied: You do not have permission to view announcements for this community'
+        });
+      } else {
+        set({ error: `Real-time updates failed: ${error.message}` });
+      }
+
+      // Unsubscribe on error to prevent repeated failures
+      const { unsubscribeAnnouncements } = get();
+      if (unsubscribeAnnouncements[communityId]) {
+        unsubscribeAnnouncements[communityId]();
+        const newUnsubscribe = { ...unsubscribeAnnouncements };
+        delete newUnsubscribe[communityId];
+        set({ unsubscribeAnnouncements: newUnsubscribe });
+      }
     });
 
     set({
@@ -470,5 +563,31 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
 
   // Utility functions
   setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error })
+  setError: (error) => set({ error }),
+
+  // CRITICAL FIX: Cleanup all subscriptions on logout
+  unsubscribeAll: () => {
+    console.log('🧹 [ANNOUNCEMENTS] Unsubscribing from all announcement listeners...');
+    const { unsubscribeAnnouncements } = get();
+
+    Object.keys(unsubscribeAnnouncements).forEach(communityId => {
+      try {
+        unsubscribeAnnouncements[communityId]();
+        console.log(`✅ [ANNOUNCEMENTS] Unsubscribed from community: ${communityId}`);
+      } catch (error) {
+        console.warn(`⚠️ [ANNOUNCEMENTS] Error unsubscribing from ${communityId}:`, error);
+      }
+    });
+
+    // Clear all subscriptions and reset state
+    set({
+      unsubscribeAnnouncements: {},
+      announcements: {},
+      unreadCounts: {},
+      loading: false,
+      error: null
+    });
+
+    console.log('✅ [ANNOUNCEMENTS] All listeners cleaned up');
+  }
 }));
