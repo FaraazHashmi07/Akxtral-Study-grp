@@ -68,7 +68,7 @@ export const DiscoverCommunitiesModal: React.FC = () => {
       console.log('👤 [MODAL] Loading user memberships for:', user.uid);
 
       // Use cached data if available, don't force reload unless necessary
-      await loadJoinedCommunities(false); // Don't force refresh
+      await loadJoinedCommunities(true); // Don't force refresh
 
       console.log('📋 [MODAL] User\'s joined communities after reload:', joinedCommunities.map(c => c.id));
     } catch (error) {
