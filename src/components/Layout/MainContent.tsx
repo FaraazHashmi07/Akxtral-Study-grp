@@ -36,28 +36,19 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
   };
 
   const renderSection = () => {
-    console.log('🔍 [MAIN] Rendering section:', {
-      activeCommunityId,
-      activeCommunity: activeCommunity?.name,
-      activeSection
-    });
-
     // Primary condition: Always show HomeSection when no community ID is set
     if (!activeCommunityId || activeCommunityId === null) {
-      console.log('🏠 [MAIN] Showing HomeSection - no active community ID');
       return <HomeSection />;
     }
 
     // Secondary condition: If we have a community ID but no community data yet
     // This can happen during loading or state transitions
     if (!activeCommunity) {
-      console.log('⏳ [MAIN] Community ID exists but no community data, showing HomeSection temporarily');
       return <HomeSection />;
     }
 
     // Tertiary condition: Ensure the community ID matches the active community
     if (activeCommunity.id !== activeCommunityId) {
-      console.log('⚠️ [MAIN] Community ID mismatch, showing HomeSection');
       return <HomeSection />;
     }
 
@@ -66,8 +57,6 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
       user.communityRoles?.[activeCommunity.id]?.role === 'community_admin' ||
       user.uid === activeCommunity.createdBy
     );
-
-    console.log('🏢 [MAIN] Showing community section:', activeSection, 'isAdmin:', isAdmin);
 
     switch (activeSection) {
       case 'dashboard':

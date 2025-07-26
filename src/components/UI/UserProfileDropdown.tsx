@@ -61,10 +61,13 @@ export const UserProfileDropdown: React.FC = () => {
 
   const handleSignOut = async () => {
     try {
-      await signOut();
+      console.log('🔄 [DROPDOWN] Starting signout process...');
       setIsOpen(false);
+      await signOut();
+      console.log('✅ [DROPDOWN] Signout completed');
     } catch (error) {
-      console.error('Failed to sign out:', error);
+      console.error('❌ [DROPDOWN] Failed to sign out:', error);
+      setIsOpen(false);
     }
   };
 

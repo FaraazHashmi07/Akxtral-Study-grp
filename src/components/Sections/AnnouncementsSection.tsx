@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Megaphone, Pin, Plus } from 'lucide-react';
+import { Megaphone, Pin, Plus, Eye } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
 import { useAnnouncementStore } from '../../store/announcementStore';
 import { useAuthStore } from '../../store/authStore';
@@ -10,17 +10,32 @@ import { isCommunityAdmin, isCommunityAdminEnhanced } from '../../lib/authorizat
 
 export const AnnouncementsSection: React.FC = () => {
   const { activeCommunity } = useCommunityStore();
-  const { announcements, loading, loadAnnouncements } = useAnnouncementStore();
+  const { 
+    announcements, 
+    loading, 
+    error, 
+    loadAnnouncements,
+    getUnreadCount,
+    markAllAnnouncementsAsRead,
+    isAnnouncementRead
+  } = useAnnouncementStore();
   const { user } = useAuthStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   // SECURITY FIX: Only show announcements if user is authenticated and has active community
   const communityAnnouncements = (activeCommunity?.id && user) ? announcements[activeCommunity.id] || [] : [];
+  const unreadCount = activeCommunity?.id ? getUnreadCount(activeCommunity.id) : 0;
 
   // Check if user is admin - using enhanced function that includes creator check
   const isAdmin = user && activeCommunity ?
     isCommunityAdminEnhanced(user, activeCommunity.id, activeCommunity) :
     false;
+
+  const handleMarkAllAsRead = async () => {
+    if (activeCommunity?.id && unreadCount > 0) {
+      await markAllAnnouncementsAsRead(activeCommunity.id);
+    }
+  };
 
   // Debug admin status
   useEffect(() => {
@@ -47,21 +62,19 @@ export const AnnouncementsSection: React.FC = () => {
   // Load announcements when component mounts or community changes
   useEffect(() => {
     if (activeCommunity?.id && user) {
-      console.log('📢 [ANNOUNCEMENTS] Loading announcements for community:', activeCommunity.id);
-
       // CRITICAL FIX: Add delay to ensure membership validation completes first
       const loadTimer = setTimeout(() => {
         // Double-check user is still authenticated and community is still active
         if (user && activeCommunity?.id) {
-          loadAnnouncements(activeCommunity.id);
+          // FIXED: Use getState() to avoid function dependency that causes infinite re-renders
+          const { loadAnnouncements: loadAnnouncementsFunc } = useAnnouncementStore.getState();
+          loadAnnouncementsFunc(activeCommunity.id);
         }
       }, 100); // Small delay to allow membership validation to complete
 
       return () => clearTimeout(loadTimer);
-    } else if (!user) {
-      console.warn('⚠️ [ANNOUNCEMENTS] User not authenticated, skipping announcement load');
     }
-  }, [activeCommunity?.id, user, loadAnnouncements]);
+  }, [activeCommunity?.id, user]); // FIXED: Removed loadAnnouncements from dependencies
 
   // SECURITY CHECK: Don't render if no active community or user not authenticated
   if (!activeCommunity || !user) {
@@ -76,22 +89,54 @@ export const AnnouncementsSection: React.FC = () => {
           {/* Header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <Megaphone size={24} className="text-blue-600 dark:text-blue-400" />
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                Announcements
-              </h1>
+              <div className="relative p-3 bg-blue-100 dark:bg-blue-900/20 rounded-lg">
+                <Megaphone className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                {unreadCount > 0 && (
+                  <div className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center animate-pulse">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="flex items-center space-x-3">
+                  <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                    Announcements
+                  </h1>
+                  {unreadCount > 0 && (
+                    <span className="px-2 py-1 bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-200 text-sm font-medium rounded-full">
+                      {unreadCount} unread
+                    </span>
+                  )}
+                </div>
+                <p className="text-gray-600 dark:text-gray-400 mt-1">
+                  Stay updated with the latest news from {activeCommunity?.name}
+                </p>
+              </div>
             </div>
-            {isAdmin && (
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={() => setShowCreateModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
-              >
-                <Plus size={20} />
-                <span>New Announcement</span>
-              </motion.button>
-            )}
+            <div className="flex items-center space-x-3">
+              {unreadCount > 0 && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleMarkAllAsRead}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  <Eye size={20} />
+                  <span>Mark All Read</span>
+                </motion.button>
+              )}
+              {isAdmin && (
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  <Plus size={20} />
+                  <span>New Announcement</span>
+                </motion.button>
+              )}
+            </div>
           </div>
 
           {/* Loading State */}

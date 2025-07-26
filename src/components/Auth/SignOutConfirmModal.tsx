@@ -10,10 +10,12 @@ export const SignOutConfirmModal: React.FC = () => {
 
   const handleConfirmSignOut = async () => {
     try {
+      console.log('🔄 [MODAL] Starting signout process...');
+      toggleSignOutConfirm(); // Close modal immediately
       await signOut();
-      toggleSignOutConfirm();
+      console.log('✅ [MODAL] Signout completed');
     } catch (error) {
-      console.error('Sign out error:', error);
+      console.error('❌ [MODAL] Sign out error:', error);
       // Still close the modal even if sign out fails
       toggleSignOutConfirm();
     }

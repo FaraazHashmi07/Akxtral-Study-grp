@@ -74,6 +74,14 @@ if (configValid) {
 
     // Initialize Firebase services
     auth = getAuth(app);
+    
+    // CRITICAL FIX: Disable Firebase auth persistence to prevent auto re-authentication after signout
+    import('firebase/auth').then(({ setPersistence, browserSessionPersistence }) => {
+      setPersistence(auth, browserSessionPersistence).catch((error) => {
+        console.warn('⚠️ Failed to set auth persistence:', error);
+      });
+    });
+    
     db = getFirestore(app);
     storage = getStorage(app);
     functions = getFunctions(app);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   X,
@@ -72,11 +72,27 @@ export const CommunityDetailModal: React.FC<CommunityDetailModalProps> = ({
   const [recentMessages, setRecentMessages] = useState<CommunityMessage[]>([]);
   const [recentResources, setRecentResources] = useState<CommunityResource[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<CommunityEvent[]>([]);
+  
+  // Refs to store unsubscribe functions for cleanup
+  const unsubscribeRefs = useRef<(() => void)[]>([]);
 
   useEffect(() => {
     if (activeTab !== 'overview') {
       loadTabData(activeTab);
     }
+    
+    // Cleanup function for real-time listeners
+    return () => {
+      console.log('🧹 [COMMUNITY_DETAIL] Cleaning up real-time listeners');
+      unsubscribeRefs.current.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          console.warn('⚠️ [COMMUNITY_DETAIL] Error during listener cleanup:', error);
+        }
+      });
+      unsubscribeRefs.current = [];
+    };
   }, [activeTab, community.id]);
 
   const loadTabData = async (tab: string) => {
@@ -90,7 +106,7 @@ export const CommunityDetailModal: React.FC<CommunityDetailModalProps> = ({
 
       switch (tab) {
         case 'members':
-          await loadMembers();
+          await setupMembersRealTimeListener();
           break;
         case 'messages':
           await loadRecentMessages();
@@ -109,42 +125,128 @@ export const CommunityDetailModal: React.FC<CommunityDetailModalProps> = ({
     }
   };
 
-  const loadMembers = async () => {
-    const { collection, getDocs, doc, getDoc } = await import('firebase/firestore');
-    const { db } = await import('../../../lib/firebase');
+  const setupMembersRealTimeListener = async () => {
+    try {
+      console.log('🔔 [COMMUNITY_DETAIL] Setting up real-time listeners for members');
+      const { collection, onSnapshot, doc } = await import('firebase/firestore');
+      const { db } = await import('../../../lib/firebase');
 
-    const rolesSnapshot = await getDocs(collection(db, 'communities', community.id, 'roles'));
-    const memberData: CommunityMember[] = await Promise.all(
-      rolesSnapshot.docs.map(async (roleDoc) => {
-        const roleData = roleDoc.data();
-        const uid = roleDoc.id;
-
-        // Try to get user info
-        let email = 'Unknown';
-        let displayName = 'Unknown User';
+      // Clear existing listeners
+      unsubscribeRefs.current.forEach(unsubscribe => {
         try {
-          const userDoc = await getDoc(doc(db, 'users', uid));
+          unsubscribe();
+        } catch (error) {
+          console.warn('⚠️ [COMMUNITY_DETAIL] Error cleaning up listener:', error);
+        }
+      });
+      unsubscribeRefs.current = [];
+
+      // Set up real-time listener for community roles
+      const rolesQuery = collection(db, 'communities', community.id, 'roles');
+      const unsubscribeRoles = onSnapshot(rolesQuery, async (snapshot) => {
+        console.log('🔔 [COMMUNITY_DETAIL] Real-time update: community roles changed');
+        
+        if (snapshot.empty) {
+          console.log('⚠️ [COMMUNITY_DETAIL] No roles found in real-time update');
+          setMembers([]);
+          return;
+        }
+
+        // Process role data and set up individual user profile listeners
+        const roleData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        await setupUserProfileListeners(roleData);
+      }, (error) => {
+        console.error('❌ [COMMUNITY_DETAIL] Real-time roles listener error:', error);
+      });
+
+      unsubscribeRefs.current.push(unsubscribeRoles);
+      
+    } catch (error) {
+      console.error('❌ [COMMUNITY_DETAIL] Failed to setup real-time listeners:', error);
+    }
+  };
+
+  const setupUserProfileListeners = async (roleData: any[]) => {
+    try {
+      console.log('👥 [COMMUNITY_DETAIL] Setting up user profile listeners for', roleData.length, 'members');
+      const { doc, onSnapshot } = await import('firebase/firestore');
+      const { db } = await import('../../../lib/firebase');
+
+      // Clear existing profile listeners (keep the roles listener)
+      const currentListeners = unsubscribeRefs.current.slice(1);
+      currentListeners.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          console.warn('⚠️ [COMMUNITY_DETAIL] Error cleaning up profile listener:', error);
+        }
+      });
+      unsubscribeRefs.current = unsubscribeRefs.current.slice(0, 1);
+
+      let processedCount = 0;
+
+      // Set up real-time listener for each user's profile
+      for (const role of roleData) {
+        const uid = role.id;
+        
+        // Set up real-time listener for this user's profile
+        const userDocRef = doc(db, 'users', uid);
+        const unsubscribeProfile = onSnapshot(userDocRef, (userDoc) => {
+          console.log(`🔔 [COMMUNITY_DETAIL] Real-time profile update for user: ${uid}`);
+          
+          let email = 'Unknown';
+          let displayName = 'Unknown User';
+
+          // Use real-time user profile data if available
           if (userDoc.exists()) {
             const userData = userDoc.data();
             email = userData.email || email;
             displayName = userData.displayName || userData.name || displayName;
           }
-        } catch (error) {
-          console.warn(`⚠️ [COMMUNITY_DETAIL] Could not fetch user info for ${uid}:`, error);
-        }
 
-        return {
-          uid,
-          email,
-          displayName,
-          role: roleData.role || 'member',
-          joinedAt: roleData.joinedAt?.toDate() || new Date(),
-          lastActive: roleData.lastActive?.toDate()
-        };
-      })
-    );
+          const memberProfile: CommunityMember = {
+            uid,
+            email,
+            displayName,
+            role: role.role || 'member',
+            joinedAt: role.joinedAt?.toDate() || new Date(),
+            lastActive: role.lastActive?.toDate()
+          };
 
-    setMembers(memberData);
+          // Update the member in the profiles array
+          setMembers(prevMembers => {
+            const existingIndex = prevMembers.findIndex(m => m.uid === uid);
+            if (existingIndex >= 0) {
+              // Update existing member
+              const updatedMembers = [...prevMembers];
+              updatedMembers[existingIndex] = memberProfile;
+              return updatedMembers.sort((a, b) => {
+                if (a.role === 'community_admin' && b.role !== 'community_admin') return -1;
+                if (b.role === 'community_admin' && a.role !== 'community_admin') return 1;
+                return a.joinedAt.getTime() - b.joinedAt.getTime();
+              });
+            } else {
+              // Add new member
+              const newMembers = [...prevMembers, memberProfile];
+              return newMembers.sort((a, b) => {
+                if (a.role === 'community_admin' && b.role !== 'community_admin') return -1;
+                if (b.role === 'community_admin' && a.role !== 'community_admin') return 1;
+                return a.joinedAt.getTime() - b.joinedAt.getTime();
+              });
+            }
+          });
+
+          processedCount++;
+        }, (error) => {
+          console.error(`❌ [COMMUNITY_DETAIL] Real-time profile listener error for ${uid}:`, error);
+          processedCount++;
+        });
+
+        unsubscribeRefs.current.push(unsubscribeProfile);
+      }
+    } catch (error) {
+      console.error('❌ [COMMUNITY_DETAIL] Failed to setup user profile listeners:', error);
+    }
   };
 
   const loadRecentMessages = async () => {

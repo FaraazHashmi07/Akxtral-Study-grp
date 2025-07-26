@@ -251,16 +251,6 @@ export const CommunityRail: React.FC = () => {
     // Use the enhanced authorization function that properly checks both role and creator status
     const adminStatus = isCommunityAdminEnhanced(user, community.id, community);
 
-    // Debug logging to track admin status determination
-    console.log('🔐 [RAIL] Admin status check:', {
-      userId: user.uid,
-      communityId: community.id,
-      communityCreatedBy: community.createdBy,
-      userRoles: user.communityRoles?.[community.id],
-      adminStatus,
-      isCreator: user.uid === community.createdBy
-    });
-
     return adminStatus;
   };
 

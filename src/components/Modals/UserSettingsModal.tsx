@@ -4,7 +4,8 @@ import { User, Mail, Shield, Save, Image as ImageIcon, Trash2, AlertTriangle } f
 import { BaseModal } from '../UI/ModalContainer';
 import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
-import { uploadUserAvatar, deleteUserAvatar, deleteUserAccount } from '../../lib/userProfile';
+import { uploadUserAvatar, deleteFileFromStorage } from '../../services/storageService';
+import { deleteUserAccount, updateUserProfile } from '../../lib/userProfile';
 
 export const UserSettingsModal: React.FC = () => {
   const { user, updateProfile, refreshUserProfile } = useAuthStore();
@@ -179,7 +180,14 @@ export const UserSettingsModal: React.FC = () => {
         console.log('📤 [PROFILE] Uploading profile image...');
 
         try {
-          photoURL = await uploadUserAvatar(user.uid, profileImageFile);
+          const uploadResult = await uploadUserAvatar(user.uid, profileImageFile, (progress) => {
+            console.log(`📤 [PROFILE] Upload progress: ${progress.percentage.toFixed(1)}%`);
+          });
+          photoURL = uploadResult.downloadURL;
+          
+          // Update user profile with new photo URL
+          await updateUserProfile(user.uid, { photoURL });
+          
           console.log('✅ [PROFILE] Profile image uploaded successfully:', photoURL);
         } catch (uploadError) {
           console.error('❌ [PROFILE] Profile image upload failed:', uploadError);
@@ -192,7 +200,16 @@ export const UserSettingsModal: React.FC = () => {
       // Handle profile image removal if user had an image but now it's removed
       if (!profileImagePreview && user?.photoURL && user) {
         try {
-          await deleteUserAvatar(user.uid, user.photoURL);
+          // Extract the storage path from the URL to delete the file
+          const urlParts = user.photoURL.split('/o/');
+          if (urlParts.length > 1) {
+            const pathPart = urlParts[1].split('?')[0];
+            const storagePath = decodeURIComponent(pathPart);
+            await deleteFileFromStorage(storagePath);
+          }
+          
+          // Update user profile to remove photo URL
+          await updateUserProfile(user.uid, { photoURL: '' });
           photoURL = '';
           console.log('🗑️ [PROFILE] Profile image deleted successfully');
         } catch (deleteError) {

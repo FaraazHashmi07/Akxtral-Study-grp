@@ -37,32 +37,23 @@ export const CommunitySidebar: React.FC = () => {
     user.uid === activeCommunity.createdBy
   );
 
-  // Load pending join requests count for admins
+  // Load pending join requests count for admins (removed auto-refresh to prevent infinite polling)
   useEffect(() => {
-    console.log('🔄 [SIDEBAR] Admin effect triggered:', { isAdmin, communityId: activeCommunity?.id });
-
     if (isAdmin && activeCommunity) {
       const loadPendingCount = async () => {
         try {
-          console.log('📋 [SIDEBAR] Loading pending requests count for:', activeCommunity.id);
           const count = await getPendingJoinRequestsCount(activeCommunity.id);
-          console.log('✅ [SIDEBAR] Pending requests count:', count);
           setPendingRequestsCount(count);
         } catch (error) {
           console.error('❌ [SIDEBAR] Failed to load pending requests count:', error);
-          console.error('❌ [SIDEBAR] Error details:', error);
           // Set count to 0 on error but don't hide the admin functionality
           setPendingRequestsCount(0);
         }
       };
 
       loadPendingCount();
-
-      // Refresh count every 10 seconds for testing
-      const interval = setInterval(loadPendingCount, 10000);
-      return () => clearInterval(interval);
+      // Removed setInterval to prevent continuous polling and auto-refresh issues
     } else {
-      console.log('⏭️ [SIDEBAR] Not admin or no community, skipping pending requests load');
       setPendingRequestsCount(0);
     }
   }, [isAdmin, activeCommunity?.id]);
@@ -72,12 +63,7 @@ export const CommunitySidebar: React.FC = () => {
   // New chat system doesn't use channels - it's community-based
   const members = (communityMembers && activeCommunity?.id) ? (communityMembers[activeCommunity.id] || []) : [];
 
-  console.log('👤 [SIDEBAR] Admin check:', {
-    userId: user?.uid,
-    communityCreatedBy: activeCommunity?.createdBy,
-    userRoles: user?.communityRoles?.[activeCommunity?.id || ''],
-    isAdmin
-  });
+  // Admin check logic completed
 
   // Base sections available to all users
   const baseSections = [

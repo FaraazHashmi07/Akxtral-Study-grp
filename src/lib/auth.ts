@@ -146,7 +146,6 @@ export const createUserProfile = async (firebaseUser: FirebaseUser, additionalDa
 // Get user profile from Firestore
 export const getUserProfile = async (uid: string): Promise<User | null> => {
   try {
-    console.log('🔍 Attempting to get user profile from Firestore:', uid);
     const userRef = doc(db, 'users', uid);
 
     // Add timeout to prevent hanging
@@ -160,12 +159,10 @@ export const getUserProfile = async (uid: string): Promise<User | null> => {
     ]);
 
     if (userSnap.exists()) {
-      console.log('✅ User profile found in Firestore');
       const userData = userSnap.data() as Omit<User, 'uid'>;
       return { uid, ...userData };
     }
 
-    console.log('❌ User profile not found in Firestore');
     return null;
   } catch (error: any) {
     console.error('❌ Error getting user profile from Firestore:', error.message);
@@ -354,12 +351,57 @@ export const handleRedirectResult = async (): Promise<UserCredential | null> => 
 export const signOutUser = async (): Promise<void> => {
   try {
     console.log('🔄 Calling Firebase signOut...');
+    
+    // CRITICAL FIX: Import stores dynamically to avoid circular dependencies
+    const { useCommunityStore } = await import('../store/communityStore');
+    const { useUIStore } = await import('../store/uiStore');
+    
+    // Reset all app stores BEFORE logout to prevent race conditions
+    console.log('🧹 Resetting stores before signout...');
+    const communityStore = useCommunityStore.getState();
+    const uiStore = useUIStore.getState();
+    
+    if (communityStore.reset) {
+      communityStore.reset();
+    }
+    if (uiStore.reset) {
+      uiStore.reset();
+    }
+    
+    // CRITICAL FIX: Clear all authentication-related storage to prevent auto re-authentication
+    console.log('🧹 Clearing all authentication storage...');
+    sessionStorage.clear();
+    localStorage.removeItem('user-profile-cache');
+    localStorage.removeItem('last-visited-community');
+    
+    // Clear Firebase auth storage keys (these are used by Firebase for persistence)
+    const firebaseKeys = Object.keys(localStorage).filter(key => 
+      key.startsWith('firebase:') || 
+      key.includes('authUser') || 
+      key.includes('firebase-heartbeat')
+    );
+    firebaseKeys.forEach(key => localStorage.removeItem(key));
+    
+    // Clear IndexedDB Firebase data
+    try {
+      if ('indexedDB' in window) {
+        const deleteDB = indexedDB.deleteDatabase('firebaseLocalStorageDb');
+        deleteDB.onsuccess = () => console.log('🗑️ Firebase IndexedDB cleared');
+        deleteDB.onerror = () => console.warn('⚠️ Failed to clear Firebase IndexedDB');
+      }
+    } catch (idbError) {
+      console.warn('⚠️ IndexedDB cleanup failed:', idbError);
+    }
+    
     await signOut(auth);
     console.log('✅ Firebase signOut completed');
-
-    // Reset all app stores after logout
-    useCommunityStore.getState().reset?.();
-    useUIStore.getState().reset?.(); // if needed
+    
+    // CRITICAL FIX: Force page reload to completely clear any cached auth state
+    setTimeout(() => {
+      console.log('🔄 Force reloading page to clear all cached auth state...');
+      window.location.reload();
+    }, 100);
+    
   } catch (error: any) {
     console.error('❌ Firebase signOut error:', error);
     throw error;

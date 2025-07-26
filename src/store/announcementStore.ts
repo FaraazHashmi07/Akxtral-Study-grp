@@ -18,15 +18,19 @@ import {
 import { db } from '../lib/firebase';
 import { Announcement, MessageReaction } from '../types';
 import { useAuthStore } from './authStore';
+import { announcementReadService } from '../services/announcementReadService';
 
 interface AnnouncementState {
   // State
   announcements: Record<string, Announcement[]>; // communityId -> announcements
   loading: boolean;
   error: string | null;
+  readAnnouncementIds: Record<string, string[]>; // communityId -> read announcement IDs
+  unreadCounts: Record<string, number>; // communityId -> unread count
 
   // Subscriptions
   unsubscribeAnnouncements: Record<string, () => void>; // communityId -> unsubscribe function
+  unsubscribeReadStatus: Record<string, () => void>; // communityId -> read status unsubscribe function
 
   // Actions
   loadAnnouncements: (communityId: string) => Promise<void>;
@@ -39,6 +43,14 @@ interface AnnouncementState {
   updateAnnouncement: (communityId: string, announcementId: string, data: Partial<Announcement>) => Promise<void>;
   deleteAnnouncement: (communityId: string, announcementId: string) => Promise<void>;
   toggleAnnouncementReaction: (communityId: string, announcementId: string, emoji: string) => Promise<void>;
+  
+  // Read tracking
+  markAnnouncementAsRead: (communityId: string, announcementId: string) => Promise<void>;
+  markAllAnnouncementsAsRead: (communityId: string) => Promise<void>;
+  getUnreadCount: (communityId: string) => number;
+  isAnnouncementRead: (communityId: string, announcementId: string) => boolean;
+  subscribeToReadStatus: (communityId: string) => void;
+  unsubscribeFromReadStatus: (communityId: string) => void;
 
   // Cleanup
   unsubscribeAll: () => void;
@@ -57,7 +69,10 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
   announcements: {},
   loading: false,
   error: null,
+  readAnnouncementIds: {},
+  unreadCounts: {},
   unsubscribeAnnouncements: {},
+  unsubscribeReadStatus: {},
 
   // Load announcements for a community
   loadAnnouncements: async (communityId) => {
@@ -163,6 +178,9 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
 
       // Then subscribe to real-time updates
       get().subscribeToAnnouncements(communityId);
+      
+      // Subscribe to read status
+      get().subscribeToReadStatus(communityId);
 
       set({ loading: false });
     } catch (error) {
@@ -427,6 +445,82 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
     }
   },
 
+  // Read tracking methods
+  markAnnouncementAsRead: async (communityId, announcementId) => {
+    await announcementReadService.markAnnouncementAsRead(communityId, announcementId);
+  },
+
+  markAllAnnouncementsAsRead: async (communityId) => {
+    const { announcements } = get();
+    const communityAnnouncements = announcements[communityId] || [];
+    const announcementIds = communityAnnouncements.map(a => a.id);
+    await announcementReadService.markAllAnnouncementsAsRead(communityId, announcementIds);
+  },
+
+  getUnreadCount: (communityId) => {
+    const { unreadCounts } = get();
+    return unreadCounts[communityId] || 0;
+  },
+
+  isAnnouncementRead: (communityId, announcementId) => {
+    const { readAnnouncementIds } = get();
+    const readIds = readAnnouncementIds[communityId] || [];
+    return readIds.includes(announcementId);
+  },
+
+  subscribeToReadStatus: (communityId) => {
+    console.log('🔌 [ANNOUNCEMENTS] Subscribing to read status for community:', communityId);
+    
+    const { unsubscribeReadStatus } = get();
+    
+    // Unsubscribe from existing subscription if any
+    if (unsubscribeReadStatus[communityId]) {
+      unsubscribeReadStatus[communityId]();
+    }
+    
+    const unsubscribe = announcementReadService.subscribeToReadStatus(communityId, (readIds) => {
+      console.log('📖 [ANNOUNCEMENTS] Read status update for community:', communityId, 'Read IDs:', readIds.length);
+      
+      const { announcements, readAnnouncementIds, unreadCounts } = get();
+      const communityAnnouncements = announcements[communityId] || [];
+      
+      // Calculate unread count
+      const unreadCount = communityAnnouncements.filter(announcement => 
+        !readIds.includes(announcement.id)
+      ).length;
+      
+      set({
+        readAnnouncementIds: {
+          ...readAnnouncementIds,
+          [communityId]: readIds
+        },
+        unreadCounts: {
+          ...unreadCounts,
+          [communityId]: unreadCount
+        },
+        unsubscribeReadStatus: {
+          ...unsubscribeReadStatus,
+          [communityId]: unsubscribe
+        }
+      });
+    });
+  },
+
+  unsubscribeFromReadStatus: (communityId) => {
+    console.log('🔌 [ANNOUNCEMENTS] Unsubscribing from read status for community:', communityId);
+    
+    const { unsubscribeReadStatus } = get();
+    
+    if (unsubscribeReadStatus[communityId]) {
+      unsubscribeReadStatus[communityId]();
+      const newUnsubscribe = { ...unsubscribeReadStatus };
+      delete newUnsubscribe[communityId];
+      set({ unsubscribeReadStatus: newUnsubscribe });
+    }
+    
+    announcementReadService.unsubscribeFromCommunity(communityId);
+  },
+
   // Utility functions
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
@@ -434,8 +528,9 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
   // CRITICAL FIX: Cleanup all subscriptions on logout
   unsubscribeAll: () => {
     console.log('🧹 [ANNOUNCEMENTS] Unsubscribing from all announcement listeners...');
-    const { unsubscribeAnnouncements } = get();
+    const { unsubscribeAnnouncements, unsubscribeReadStatus } = get();
 
+    // Unsubscribe from announcement listeners
     Object.keys(unsubscribeAnnouncements).forEach(communityId => {
       try {
         unsubscribeAnnouncements[communityId]();
@@ -445,10 +540,26 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
       }
     });
 
+    // Unsubscribe from read status listeners
+    Object.keys(unsubscribeReadStatus).forEach(communityId => {
+      try {
+        unsubscribeReadStatus[communityId]();
+        console.log(`✅ [ANNOUNCEMENTS] Unsubscribed from read status: ${communityId}`);
+      } catch (error) {
+        console.warn(`⚠️ [ANNOUNCEMENTS] Error unsubscribing from read status ${communityId}:`, error);
+      }
+    });
+
+    // Cleanup announcement read service
+    announcementReadService.unsubscribeAll();
+
     // Clear all subscriptions and reset state
     set({
       unsubscribeAnnouncements: {},
+      unsubscribeReadStatus: {},
       announcements: {},
+      readAnnouncementIds: {},
+      unreadCounts: {},
       error: null
     });
 

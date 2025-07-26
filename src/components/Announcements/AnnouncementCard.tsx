@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Pin, AlertTriangle, MoreVertical, Trash2, Edit3 } from 'lucide-react';
+import { Pin, AlertTriangle, MoreVertical, Trash2, Edit3, Circle } from 'lucide-react';
 import { format } from 'date-fns';
 import { Announcement } from '../../types';
 import { useAnnouncementStore } from '../../store/announcementStore';
@@ -17,15 +17,61 @@ interface AnnouncementCardProps {
 const quickReactions = ['👍', '❤️', '😂', '😮', '🤔', '👏'];
 
 export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({ announcement }) => {
-  const { toggleAnnouncementReaction, deleteAnnouncement } = useAnnouncementStore();
+  const { 
+    toggleAnnouncementReaction, 
+    deleteAnnouncement, 
+    markAnnouncementAsRead, 
+    isAnnouncementRead 
+  } = useAnnouncementStore();
   const { user } = useAuthStore();
   const { activeCommunity } = useCommunityStore();
   const [showActions, setShowActions] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [hasBeenViewed, setHasBeenViewed] = useState(false);
 
   const isAuthor = user?.uid === announcement.authorId;
   const isAdmin = activeCommunity?.id ? isCommunityAdmin(user, activeCommunity.id) : false;
   const canDelete = isAuthor || isAdmin;
+  const isRead = activeCommunity?.id ? isAnnouncementRead(activeCommunity.id, announcement.id) : true;
+
+  // Mark announcement as read when it comes into view
+  useEffect(() => {
+    if (!cardRef.current || !activeCommunity?.id || isRead || hasBeenViewed) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            // Mark as read after 1 second of being in view
+            setTimeout(() => {
+              if (!hasBeenViewed && activeCommunity?.id) {
+                markAnnouncementAsRead(activeCommunity.id, announcement.id);
+                setHasBeenViewed(true);
+              }
+            }, 1000);
+          }
+        });
+      },
+      {
+        threshold: 0.5, // Trigger when 50% of the card is visible
+        rootMargin: '0px 0px -50px 0px' // Add some margin to ensure it's properly in view
+      }
+    );
+
+    observer.observe(cardRef.current);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeCommunity?.id, announcement.id, isRead, hasBeenViewed, markAnnouncementAsRead]);
+
+  // Update hasBeenViewed when read status changes
+  useEffect(() => {
+    if (isRead) {
+      setHasBeenViewed(true);
+    }
+  }, [isRead]);
 
   const handleReaction = (emoji: string) => {
     if (activeCommunity?.id) {
@@ -42,12 +88,15 @@ export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({ announcement
 
   return (
     <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`relative bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden ${
+      className={`relative bg-white dark:bg-gray-800 rounded-lg border overflow-hidden ${
         announcement.isPinned 
-          ? 'ring-2 ring-blue-200 dark:ring-blue-800 bg-blue-50/50 dark:bg-blue-900/10' 
-          : ''
+          ? 'ring-2 ring-blue-200 dark:ring-blue-800 bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-700' 
+          : isRead 
+            ? 'border-gray-200 dark:border-gray-700'
+            : 'border-blue-300 dark:border-blue-600 bg-blue-50/30 dark:bg-blue-900/5'
       }`}
       onMouseEnter={() => setShowActions(true)}
       onMouseLeave={() => {
@@ -55,6 +104,16 @@ export const AnnouncementCard: React.FC<AnnouncementCardProps> = ({ announcement
         setShowMenu(false);
       }}
     >
+      {/* Unread Indicator */}
+      {!isRead && (
+        <div className="absolute top-4 right-4 z-10">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            className="w-3 h-3 bg-blue-500 rounded-full animate-pulse shadow-lg"
+          />
+        </div>
+      )}
       {/* Pinned/Important Indicators */}
       {(announcement.isPinned || announcement.isImportant) && (
         <div className="flex items-center space-x-2 px-6 pt-4 pb-2">

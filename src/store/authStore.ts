@@ -57,10 +57,18 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   initialize: () => {
     console.log('🔄 Initializing Firebase auth listener...');
 
-    // Check for redirect result first (for COOP fallback)
-    handleRedirectResult().catch((error) => {
-      console.warn('No redirect result or error handling redirect:', error.message);
-    });
+    // CRITICAL FIX: Only check for redirect result if we're not in a signout process
+    // This prevents automatic re-authentication after user signs out
+    const isSigningOut = sessionStorage.getItem('signing-out') === 'true';
+    if (!isSigningOut) {
+      // Check for redirect result first (for COOP fallback)
+      handleRedirectResult().catch((error) => {
+        console.warn('No redirect result or error handling redirect:', error.message);
+      });
+    } else {
+      console.log('🚫 Skipping redirect result check - signout in progress');
+      return () => {}; // Return empty cleanup function
+    }
 
     // Set a shorter timeout for initial auth check
     const timeoutId = setTimeout(() => {
@@ -245,6 +253,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ loading: true, error: null });
 
     try {
+      // CRITICAL FIX: Set flag to prevent re-authentication during signout
+      sessionStorage.setItem('signing-out', 'true');
+      console.log('🔧 [AUTH] Signing-out flag set to prevent re-authentication');
+
       // CRITICAL FIX: Clean up all real-time listeners before signing out
       console.log('🧹 [AUTH] Cleaning up listeners before sign out...');
 
@@ -274,17 +286,36 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         // Don't fail sign out if cleanup fails
       }
 
+      // CRITICAL FIX: Clear user state BEFORE calling signOutUser to ensure immediate state change
+      console.log('🔄 [AUTH] Clearing user state before Firebase signout...');
+      set({ 
+        user: null, 
+        loading: false, 
+        error: null, 
+        showTwoFactor: false,
+        isSuperAdmin: false,
+        superAdminToken: null 
+      });
+
+      // Call Firebase signout
       await signOutUser();
-      console.log('✅ Sign out successful');
-      // User state will be updated by onAuthStateChanged listener
-      // Reset loading state immediately since auth state change will handle the rest
-      set({ loading: false });
+      console.log('✅ Sign out successful - user state cleared and Firebase signout completed');
+      
+      // Clear the signing-out flag after successful signout
+      sessionStorage.removeItem('signing-out');
+      
     } catch (error: any) {
       console.error('❌ Sign out failed:', error);
+      // Even if signout fails, clear the user state to prevent stuck state
       set({
+        user: null,
         error: error instanceof Error ? error.message : 'Sign out failed',
-        loading: false
+        loading: false,
+        isSuperAdmin: false,
+        superAdminToken: null
       });
+      // Clear the signing-out flag even on error
+      sessionStorage.removeItem('signing-out');
       throw error;
     }
   },
@@ -321,6 +352,26 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         }
       }
 
+      // OPTIMIZED: Store profile in cache for new messages only
+      if (updates.displayName || updates.photoURL !== undefined) {
+        try {
+          console.log('🔄 [PROFILE] Storing profile for new chat messages...');
+          const { updateUserMessagesProfile } = await import('../services/chatService');
+          
+          const chatUpdates: { displayName?: string; photoURL?: string } = {};
+          if (updates.displayName) chatUpdates.displayName = updates.displayName;
+          if (updates.photoURL !== undefined) chatUpdates.photoURL = updates.photoURL;
+          
+          // Store profile for new messages only - no historical updates
+          await updateUserMessagesProfile(user.uid, chatUpdates);
+          
+          console.log('✅ [PROFILE] Profile cached for new chat messages');
+        } catch (chatError) {
+          console.warn('⚠️ [PROFILE] Failed to cache profile for chat, but profile update succeeded:', chatError);
+          // Don't fail the entire profile update if chat update fails
+        }
+      }
+
       // Update local state
       const updatedUser = { ...user, ...updates };
       set({ user: updatedUser, loading: false });
@@ -342,8 +393,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const { user } = get();
       if (!user) return;
 
-      console.log('🔄 [PROFILE] Refreshing user profile from Firestore...');
-
       // Import functions dynamically to avoid circular imports
       const { getUserProfile } = await import('../lib/auth');
       const { getAllCommunityRoles } = await import('../lib/userProfile');
@@ -355,7 +404,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         const updatedProfile = { ...firestoreProfile, communityRoles };
 
         set({ user: updatedProfile });
-        console.log('✅ [PROFILE] User profile refreshed from Firestore');
       }
     } catch (error) {
       console.error('❌ [PROFILE] Failed to refresh user profile:', error);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Users,
@@ -40,145 +40,166 @@ export const MemberListModal: React.FC<MemberListModalProps> = ({ communityId })
   const [loading, setLoading] = useState(true);
   const [removingMember, setRemovingMember] = useState<string | null>(null);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState<string | null>(null);
+  
+  // Refs to store unsubscribe functions for cleanup
+  const unsubscribeRefs = useRef<(() => void)[]>([]);
 
   // Check if current user is admin of this community
   const isCurrentUserAdmin = activeCommunity?.createdBy === user?.uid ||
     members.find(m => m.uid === user?.uid)?.role === 'community_admin';
 
   useEffect(() => {
-    loadCommunityMembers();
+    setupRealTimeListeners();
+    
+    // Cleanup function
+    return () => {
+      console.log('🧹 [MEMBER_MODAL] Cleaning up real-time listeners');
+      unsubscribeRefs.current.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          console.warn('⚠️ [MEMBER_MODAL] Error during listener cleanup:', error);
+        }
+      });
+      unsubscribeRefs.current = [];
+    };
   }, [communityId]);
 
-  const loadCommunityMembers = async () => {
+  const setupRealTimeListeners = async () => {
     setLoading(true);
     try {
-      console.log('👥 [MEMBER_MODAL] Loading members for community:', communityId);
+      console.log('🔔 [MEMBER_MODAL] Setting up real-time listeners for community:', communityId);
 
       // Import Firestore functions
-      const { collection, getDocs, query, where, doc, getDoc } = await import('firebase/firestore');
+      const { collection, query, where, onSnapshot, doc } = await import('firebase/firestore');
       const { db } = await import('../../lib/firebase');
 
-      // Try to get members from communityMembers collection first
-      let membersSnapshot;
-      try {
-        const membersQuery = query(
-          collection(db, 'communityMembers'),
-          where('communityId', '==', communityId)
-        );
-        membersSnapshot = await getDocs(membersQuery);
-        console.log(`📊 [MEMBER_MODAL] Found ${membersSnapshot.size} members in communityMembers collection`);
-      } catch (error) {
-        console.warn('⚠️ [MEMBER_MODAL] Could not access communityMembers collection:', error);
+      // Set up real-time listener for community members
+      const membersQuery = query(
+        collection(db, 'communityMembers'),
+        where('communityId', '==', communityId)
+      );
 
-        // Fallback: try to get members from community roles subcollection
-        try {
-          console.log('🔄 [MEMBER_MODAL] Trying community roles subcollection as fallback...');
-          const rolesQuery = query(collection(db, 'communities', communityId, 'roles'));
-          const rolesSnapshot = await getDocs(rolesQuery);
-
-          if (rolesSnapshot.empty) {
-            console.log('⚠️ [MEMBER_MODAL] No members found in roles subcollection either');
-            setMembers([]);
-            setLoading(false);
-            return;
-          }
-
-          // Convert roles data to member format
-          const roleMembers = rolesSnapshot.docs.map(roleDoc => ({
-            uid: roleDoc.id,
-            communityId: communityId,
-            role: roleDoc.data().role || 'community_member',
-            joinedAt: roleDoc.data().joinedAt || new Date(),
-            lastActive: roleDoc.data().lastActive
-          }));
-
-          // Create a fake snapshot-like structure
-          membersSnapshot = {
-            empty: false,
-            size: roleMembers.length,
-            docs: roleMembers.map(member => ({
-              data: () => member
-            }))
-          };
-
-          console.log(`📊 [MEMBER_MODAL] Found ${roleMembers.length} members in roles subcollection`);
-        } catch (rolesError) {
-          console.error('❌ [MEMBER_MODAL] Could not access roles subcollection either:', rolesError);
+      const unsubscribeMembers = onSnapshot(membersQuery, async (snapshot) => {
+        console.log('🔔 [MEMBER_MODAL] Real-time update: community members changed');
+        
+        if (snapshot.empty) {
+          console.log('⚠️ [MEMBER_MODAL] No members found in real-time update');
           setMembers([]);
           setLoading(false);
           return;
         }
-      }
 
-      if (membersSnapshot.empty) {
-        console.log('⚠️ [MEMBER_MODAL] No members found');
-        setMembers([]);
+        // Process member data and set up individual user profile listeners
+        const memberData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        await setupUserProfileListeners(memberData);
+      }, (error) => {
+        console.error('❌ [MEMBER_MODAL] Real-time members listener error:', error);
+        // Fallback to roles collection if communityMembers fails
+        setupRolesListener();
+      });
+
+      unsubscribeRefs.current.push(unsubscribeMembers);
+      
+    } catch (error) {
+      console.error('❌ [MEMBER_MODAL] Failed to setup real-time listeners:', error);
+      setLoading(false);
+    }
+  };
+
+  const setupRolesListener = async () => {
+    try {
+      console.log('🔄 [MEMBER_MODAL] Setting up roles collection listener as fallback');
+      const { collection, query, onSnapshot } = await import('firebase/firestore');
+      const { db } = await import('../../lib/firebase');
+
+      const rolesQuery = query(collection(db, 'communities', communityId, 'roles'));
+      
+      const unsubscribeRoles = onSnapshot(rolesQuery, async (snapshot) => {
+        console.log('🔔 [MEMBER_MODAL] Real-time update: community roles changed');
+        
+        if (snapshot.empty) {
+          console.log('⚠️ [MEMBER_MODAL] No roles found in real-time update');
+          setMembers([]);
+          setLoading(false);
+          return;
+        }
+
+        // Convert roles data to member format
+        const memberData = snapshot.docs.map(roleDoc => ({
+          uid: roleDoc.id,
+          communityId: communityId,
+          role: roleDoc.data().role || 'community_member',
+          joinedAt: roleDoc.data().joinedAt || new Date(),
+          lastActive: roleDoc.data().lastActive
+        }));
+
+        await setupUserProfileListeners(memberData);
+      }, (error) => {
+        console.error('❌ [MEMBER_MODAL] Real-time roles listener error:', error);
         setLoading(false);
-        return;
-      }
+      });
 
-      // Fetch user profiles for each member
-      const memberProfiles: CommunityMemberWithProfile[] = await Promise.all(
-        membersSnapshot.docs.map(async (memberDoc) => {
-          const memberData = memberDoc.data();
-          const uid = memberData.uid;
+      unsubscribeRefs.current.push(unsubscribeRoles);
+    } catch (error) {
+      console.error('❌ [MEMBER_MODAL] Failed to setup roles listener:', error);
+      setLoading(false);
+    }
+  };
 
-          console.log(`👤 [MEMBER_MODAL] Processing member ${uid}:`, {
-            hasEmail: !!memberData.email,
-            hasDisplayName: !!memberData.displayName,
-            email: memberData.email,
-            displayName: memberData.displayName,
-            role: memberData.role
-          });
+  const setupUserProfileListeners = async (memberData: any[]) => {
+    try {
+      console.log('👥 [MEMBER_MODAL] Setting up user profile listeners for', memberData.length, 'members');
+      const { doc, onSnapshot } = await import('firebase/firestore');
+      const { db } = await import('../../lib/firebase');
 
-          // First, try to use data from the communityMembers document itself
-          let email = memberData.email || '';
-          let displayName = memberData.displayName || memberData.name || '';
-          let photoURL = memberData.photoURL || '';
+      // Clear existing profile listeners
+      const currentListeners = unsubscribeRefs.current.slice(1); // Keep the first one (members/roles listener)
+      currentListeners.forEach(unsubscribe => {
+        try {
+          unsubscribe();
+        } catch (error) {
+          console.warn('⚠️ [MEMBER_MODAL] Error cleaning up profile listener:', error);
+        }
+      });
+      unsubscribeRefs.current = unsubscribeRefs.current.slice(0, 1);
+
+      const memberProfiles: CommunityMemberWithProfile[] = [];
+      let processedCount = 0;
+
+      // Set up real-time listener for each user's profile
+      for (const member of memberData) {
+        const uid = member.uid;
+        
+        // Set up real-time listener for this user's profile
+        const userDocRef = doc(db, 'users', uid);
+        const unsubscribeProfile = onSnapshot(userDocRef, (userDoc) => {
+          console.log(`🔔 [MEMBER_MODAL] Real-time profile update for user: ${uid}`);
+          
+          let email = member.email || '';
+          let displayName = member.displayName || member.name || '';
+          let photoURL = member.photoURL || '';
 
           // If this is the current user, use their authenticated data first
           if (uid === user?.uid && user) {
-            console.log(`👤 [MEMBER_MODAL] Using current user authenticated data for ${uid}`);
             email = user.email || email;
             displayName = user.displayName || displayName;
             photoURL = user.photoURL || photoURL;
           }
 
-          // Try to get additional user data if we still don't have complete information
-          if (!email || !displayName) {
-            try {
-              console.log(`🔍 [MEMBER_MODAL] Fetching additional profile data for ${uid}`);
-
-              // Try the users collection with better error handling
-              try {
-                const userDoc = await getDoc(doc(db, 'users', uid));
-
-                if (userDoc.exists()) {
-                  const userData = userDoc.data();
-                  email = userData.email || email;
-                  displayName = userData.displayName || userData.name || displayName;
-                  photoURL = userData.photoURL || photoURL;
-
-                  console.log(`✅ [MEMBER_MODAL] Successfully fetched profile from users collection for ${uid}`);
-                } else {
-                  console.warn(`⚠️ [MEMBER_MODAL] User profile not found in users collection for UID: ${uid}`);
-                }
-              } catch (userError) {
-                console.warn(`⚠️ [MEMBER_MODAL] Could not access users collection for ${uid}:`, userError);
-                // Continue with fallback logic below
-              }
-            } catch (error) {
-              console.warn(`⚠️ [MEMBER_MODAL] Error in profile fetching for ${uid}:`, error);
-            }
+          // Use real-time user profile data if available
+          if (userDoc.exists()) {
+            const userData = userDoc.data();
+            email = userData.email || email;
+            displayName = userData.displayName || userData.name || displayName;
+            photoURL = userData.photoURL || photoURL;
           }
 
           // Smart fallback logic for display name
           if (!displayName || displayName.trim() === '' ||
               displayName === 'Unknown User' || displayName === 'Unknown' ||
               displayName === 'Error loading user' || displayName.startsWith('Member ')) {
-
             displayName = generateDisplayName(email, uid);
-            console.log(`📧 [MEMBER_MODAL] Generated display name for ${uid}: ${displayName}`);
           }
 
           // Smart fallback logic for email
@@ -197,38 +218,55 @@ export const MemberListModal: React.FC<MemberListModalProps> = ({ communityId })
             email,
             displayName,
             photoURL,
-            role: memberData.role || 'community_member',
-            joinedAt: memberData.joinedAt?.toDate() || new Date(),
-            lastActive: memberData.lastActive?.toDate()
+            role: member.role || 'community_member',
+            joinedAt: member.joinedAt?.toDate() || new Date(),
+            lastActive: member.lastActive?.toDate()
           };
 
-          console.log(`✅ [MEMBER_MODAL] Final member profile for ${uid}:`, {
-            displayName: memberProfile.displayName,
-            email: memberProfile.email,
-            role: memberProfile.role
+          // Update the member in the profiles array
+          setMembers(prevMembers => {
+            const existingIndex = prevMembers.findIndex(m => m.uid === uid);
+            if (existingIndex >= 0) {
+              // Update existing member
+              const updatedMembers = [...prevMembers];
+              updatedMembers[existingIndex] = memberProfile;
+              return updatedMembers.sort((a, b) => {
+                if (a.role === 'community_admin' && b.role !== 'community_admin') return -1;
+                if (b.role === 'community_admin' && a.role !== 'community_admin') return 1;
+                return a.joinedAt.getTime() - b.joinedAt.getTime();
+              });
+            } else {
+              // Add new member
+              const newMembers = [...prevMembers, memberProfile];
+              return newMembers.sort((a, b) => {
+                if (a.role === 'community_admin' && b.role !== 'community_admin') return -1;
+                if (b.role === 'community_admin' && a.role !== 'community_admin') return 1;
+                return a.joinedAt.getTime() - b.joinedAt.getTime();
+              });
+            }
           });
 
-          return memberProfile;
-        })
-      );
+          processedCount++;
+          if (processedCount === memberData.length) {
+            setLoading(false);
+          }
+        }, (error) => {
+          console.error(`❌ [MEMBER_MODAL] Real-time profile listener error for ${uid}:`, error);
+          processedCount++;
+          if (processedCount === memberData.length) {
+            setLoading(false);
+          }
+        });
 
-      // Sort members: admins first, then by join date
-      const sortedMembers = memberProfiles.sort((a, b) => {
-        if (a.role === 'community_admin' && b.role !== 'community_admin') return -1;
-        if (b.role === 'community_admin' && a.role !== 'community_admin') return 1;
-        return a.joinedAt.getTime() - b.joinedAt.getTime();
-      });
-
-      console.log('✅ [MEMBER_MODAL] Successfully loaded member profiles:', sortedMembers.length);
-      setMembers(sortedMembers);
+        unsubscribeRefs.current.push(unsubscribeProfile);
+      }
     } catch (error) {
-      console.error('❌ [MEMBER_MODAL] Failed to load community members:', error);
-      showToast('Failed to load community members', 'error');
-      setMembers([]);
-    } finally {
+      console.error('❌ [MEMBER_MODAL] Failed to setup user profile listeners:', error);
       setLoading(false);
     }
   };
+
+
 
   const handleRemoveMember = async (memberUid: string, memberName: string) => {
     if (!isCurrentUserAdmin) {
@@ -464,17 +502,7 @@ export const MemberListModal: React.FC<MemberListModalProps> = ({ communityId })
           </div>
         )}
 
-        {/* Refresh button */}
-        {!loading && (
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={loadCommunityMembers}
-              className="px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-            >
-              Refresh Members
-            </button>
-          </div>
-        )}
+        {/* Note: Real-time updates are now automatic */}
       </div>
     </BaseModal>
   );

@@ -112,13 +112,11 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
 
     // CRITICAL FIX: Prevent loading during signout process
     if (authState.loading) {
-      console.log('⏳ [STORE] Auth is loading (possibly signing out), skipping community load');
       return;
     }
 
     // Performance optimization: Skip if already loading for same user
     if (loading && lastLoadedUserId === user.uid) {
-      console.log('⏳ [STORE] Already loading communities for user:', user.uid);
       return;
     }
 
@@ -128,18 +126,12 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
     if (!forceRefresh &&
         lastLoadedUserId === user.uid &&
         (now - lastLoadTime) < cacheValidTime) {
-      console.log('💾 [STORE] Using cached communities for user:', user.uid,
-                  'age:', Math.round((now - lastLoadTime) / 1000), 'seconds');
       return;
     }
 
     set({ loading: true, error: null });
     try {
-      console.log('📋 [STORE] Loading joined communities for user:', user.uid,
-                  forceRefresh ? '(forced refresh)' : '');
-
       const joinedCommunities = await communityService.getUserCommunities(user.uid);
-      console.log('✅ [STORE] Loaded joined communities:', joinedCommunities.map(c => c.name));
 
       // Only update if we still have the same user (prevent race conditions)
       const currentUser = useAuthStore.getState().user;

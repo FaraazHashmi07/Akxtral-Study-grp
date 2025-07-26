@@ -17,29 +17,56 @@ import { SuperAdminLayout } from './components/Admin/SuperAdminLayout';
 
 function App() {
   const { user, loading, showTwoFactor, initialize, isSuperAdmin } = useAuthStore();
-  const { loadJoinedCommunities } = useCommunityStore();
+  // Removed loadJoinedCommunities from destructuring to prevent infinite re-renders
   const [showLogin, setShowLogin] = React.useState(false);
+  const [wasAuthenticated, setWasAuthenticated] = React.useState(false);
+  const [isInitialized, setIsInitialized] = React.useState(false);
 
   // Initialize Firebase auth listener
   useEffect(() => {
     const unsubscribe = initialize();
-    return () => unsubscribe && unsubscribe();
+    
+    // Mark as initialized after a short delay to ensure auth state is settled
+    const initTimer = setTimeout(() => {
+      setIsInitialized(true);
+    }, 1000);
+    
+    return () => {
+      clearTimeout(initTimer);
+      unsubscribe && unsubscribe();
+    };
   }, [initialize]);
 
   // Load user's communities when authenticated (but not for Super Admin)
   useEffect(() => {
     // CRITICAL FIX: Don't load communities during auth loading (prevents signout issues)
-    if (user && !isSuperAdmin && !loading) {
-      console.log('🔄 [APP] Loading joined communities for authenticated user:', user.uid);
-      loadJoinedCommunities();
-    } else if (!user) {
-      console.log('👤 [APP] User signed out, skipping community load');
-    } else if (loading) {
-      console.log('⏳ [APP] Auth loading, skipping community load to prevent race conditions');
+    if (user && !isSuperAdmin && !loading && isInitialized) {
+      // FIXED: Use getState() to avoid function dependency that causes infinite re-renders
+      const { loadJoinedCommunities: loadCommunities } = useCommunityStore.getState();
+      loadCommunities();
+      setWasAuthenticated(true);
+    } else if (!user && !loading && isInitialized) {
+      // CRITICAL FIX: Reset community store immediately when user signs out
+      const { reset } = useCommunityStore.getState();
+      if (reset) {
+        reset();
+      }
     }
-  }, [user, isSuperAdmin, loading, loadJoinedCommunities]);
+  }, [user, isSuperAdmin, loading, isInitialized]); // FIXED: Removed loadJoinedCommunities from dependencies
 
-  // Show loading spinner while checking authentication
+  // Show login form when user signs out
+  useEffect(() => {
+    // Only process redirect logic after auth is initialized
+    if (!isInitialized) return;
+    
+    // If user was authenticated but now is null (signed out), show login form
+    if (wasAuthenticated && !user && !loading && !isSuperAdmin) {
+      setShowLogin(true);
+      setWasAuthenticated(false);
+    }
+  }, [user, loading, isSuperAdmin, wasAuthenticated, isInitialized]);
+
+   // Show loading spinner while checking authentication
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">

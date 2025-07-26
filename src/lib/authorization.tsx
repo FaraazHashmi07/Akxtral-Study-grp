@@ -13,19 +13,10 @@ export const hasCommunityRole = (
 
   const communityRole = user.communityRoles?.[communityId];
   if (!communityRole) {
-    console.log('🔍 [AUTH] No community role found for user:', user.uid, 'in community:', communityId);
     return false;
   }
 
   const hasRole = roles.includes(communityRole.role);
-  console.log('🔍 [AUTH] Role check:', {
-    userId: user.uid,
-    communityId,
-    userRole: communityRole.role,
-    requiredRoles: roles,
-    hasRole
-  });
-
   return hasRole;
 };
 
@@ -42,31 +33,15 @@ export const isCommunityAdminEnhanced = (
 ): boolean => {
   if (!user || !communityId) return false;
 
-  // SECURITY: Ensure only legitimate admin status, no fallbacks for regular users
-  // Only the designated Super Admin email should have any elevated privileges
-  const isSuperAdmin = user.email === '160422747039@mjcollege.ac.in';
-
-  // Check role-based admin status
+  // Check if user has admin role
   const hasAdminRole = hasCommunityRole(user, communityId, ['community_admin']);
-
-  // Check if user is the community creator
-  const isCreator = community ? user.uid === community.createdBy : false;
-
-  // Regular users should only be admin if they have explicit role or created the community
-  const isAdmin = hasAdminRole || isCreator;
-
-  console.log('🔐 [AUTH] Enhanced admin check:', {
-    userId: user.uid,
-    userEmail: user.email,
-    communityId,
-    communityCreatedBy: community?.createdBy,
-    hasAdminRole,
-    isCreator,
-    isSuperAdmin,
-    finalResult: isAdmin
-  });
-
-  return isAdmin;
+  
+  // Check if user is the community creator (fallback for communities created before role system)
+  const isCreator = community && user.uid === community.createdBy;
+  
+  const result = hasAdminRole || !!isCreator;
+  
+  return result;
 };
 
 // Check if user is community moderator or higher

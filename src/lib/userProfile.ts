@@ -189,7 +189,6 @@ export const getCommunityRole = async (
 // Get all community roles for a user - SUPER OPTIMIZED VERSION
 export const getAllCommunityRoles = async (uid: string): Promise<Record<string, CommunityRole>> => {
   try {
-    console.log('🔍 [PROFILE] Loading community roles for user:', uid);
     const startTime = Date.now();
 
     // OPTIMIZATION: Use the existing membership data to only query communities user is actually in
@@ -198,14 +197,11 @@ export const getAllCommunityRoles = async (uid: string): Promise<Record<string, 
     const memberSnapshot = await getDocs(memberQuery);
 
     if (memberSnapshot.empty) {
-      console.log('✅ [PROFILE] No community memberships found for user');
       return {};
     }
 
     const communityRoles: Record<string, CommunityRole> = {};
     const communityIds = memberSnapshot.docs.map(doc => doc.data().communityId);
-
-    console.log('🔍 [PROFILE] Checking roles for', communityIds.length, 'communities');
 
     // Batch the role queries for better performance
     const rolePromises = communityIds.map(async (communityId) => {
@@ -216,11 +212,9 @@ export const getAllCommunityRoles = async (uid: string): Promise<Record<string, 
         if (roleSnap.exists()) {
           const roleData = roleSnap.data() as CommunityRole;
           communityRoles[communityId] = roleData;
-          console.log('✅ [PROFILE] Found role for community:', communityId, roleData.role);
         } else {
           // This is expected - membership might exist but role document might be missing
           // Create a default role to prevent future queries
-          console.log('⚠️ [PROFILE] Missing role document for community:', communityId, '- using default');
           communityRoles[communityId] = {
             role: 'community_member',
             assignedAt: new Date(),
@@ -240,10 +234,6 @@ export const getAllCommunityRoles = async (uid: string): Promise<Record<string, 
 
     // Execute all role queries in parallel
     await Promise.all(rolePromises);
-
-    const endTime = Date.now();
-    console.log('✅ [PROFILE] Loaded community roles in', endTime - startTime, 'ms:',
-                Object.keys(communityRoles).length, 'roles found');
 
     return communityRoles;
   } catch (error) {
@@ -330,10 +320,11 @@ export const updateUserProfile = async (uid: string, updates: Partial<User>): Pr
   }
 };
 
-// Delete user account and all related data comprehensively
+// Delete user account and all related data - SUPER OPTIMIZED VERSION
 export const deleteUserAccount = async (uid: string): Promise<void> => {
   try {
-    console.log('🗑️ [DELETE] Starting comprehensive account deletion for user:', uid);
+    console.log('🗑️ [DELETE] Starting SUPER OPTIMIZED account deletion for user:', uid);
+    const startTime = Date.now();
 
     const batch = writeBatch(db);
 
@@ -348,125 +339,328 @@ export const deleteUserAccount = async (uid: string): Promise<void> => {
       userPhotoURL = userData.photoURL || '';
     }
 
-    // 2. Get all communities where user is a member
-    console.log('🏘️ [DELETE] Step 2: Finding user communities...');
-    const communitiesQuery = query(collection(db, 'communities'));
-    const communitiesSnapshot = await getDocs(communitiesQuery);
-
-    const userCommunityIds: string[] = [];
-
-    for (const communityDoc of communitiesSnapshot.docs) {
-      const communityId = communityDoc.id;
-
-      // Check if user is a member of this community
-      const memberRef = doc(db, 'communities', communityId, 'members', uid);
-      const memberSnap = await getDoc(memberRef);
-
-      if (memberSnap.exists()) {
-        userCommunityIds.push(communityId);
-
-        // Remove user from community members
-        batch.delete(memberRef);
-
-        // Update community member count
-        const communityData = communityDoc.data();
-        const currentMemberCount = communityData.memberCount || 0;
-        batch.update(communityDoc.ref, {
-          memberCount: Math.max(0, currentMemberCount - 1)
-        });
-
-        console.log(`🏘️ [DELETE] Removing user from community: ${communityId}`);
-      }
-    }
-
-    // 3. Delete all join requests by this user
-    console.log('📝 [DELETE] Step 3: Deleting join requests...');
-    const joinRequestsQuery = query(
-      collection(db, 'joinRequests'),
+    // 2. OPTIMIZATION: Find communities created by user AND communities where user is a member
+    console.log('🏘️ [DELETE] Step 2: Finding user-created communities and memberships (OPTIMIZED)...');
+    
+    // Find communities created by this user
+    const createdCommunitiesQuery = query(
+      collection(db, 'communities'),
+      where('createdBy', '==', uid)
+    );
+    const createdCommunitiesSnapshot = await getDocs(createdCommunitiesQuery);
+    
+    // Find communities where user is a member
+    const communityMembersQuery = query(
+      collection(db, 'communityMembers'),
       where('uid', '==', uid)
     );
-    const joinRequestsSnapshot = await getDocs(joinRequestsQuery);
-
-    joinRequestsSnapshot.forEach((doc) => {
-      batch.delete(doc.ref);
-      console.log(`📝 [DELETE] Deleting join request: ${doc.id}`);
+    const communityMembersSnapshot = await getDocs(communityMembersQuery);
+    
+    const userCommunityIds: string[] = [];
+    const createdCommunityIds: string[] = [];
+    const communityUpdatePromises: Promise<void>[] = [];
+    
+    // Process created communities (these will be completely deleted)
+    createdCommunitiesSnapshot.forEach((communityDoc) => {
+      const communityId = communityDoc.id;
+      createdCommunityIds.push(communityId);
+      console.log(`🏗️ [DELETE] Found user-created community to delete: ${communityId}`);
     });
 
-    // 4. Delete user's messages from all communities
-    console.log('💬 [DELETE] Step 4: Deleting user messages...');
-    for (const communityId of userCommunityIds) {
-      // Delete messages in main chat
-      const messagesQuery = query(
-        collection(db, 'communities', communityId, 'messages'),
-        where('senderId', '==', uid)
+    // Process memberships and queue community updates in parallel
+    communityMembersSnapshot.forEach((memberDoc) => {
+      const communityId = memberDoc.data().communityId;
+      userCommunityIds.push(communityId);
+      
+      // Delete membership
+      batch.delete(memberDoc.ref);
+      
+      // Delete user's role from community
+      const roleRef = doc(db, 'communities', communityId, 'roles', uid);
+      batch.delete(roleRef);
+      
+      // Queue community member count update (parallel execution)
+      communityUpdatePromises.push(
+        (async () => {
+          try {
+            const communityRef = doc(db, 'communities', communityId);
+            const communitySnap = await getDoc(communityRef);
+            if (communitySnap.exists()) {
+              const communityData = communitySnap.data();
+              const currentMemberCount = communityData.memberCount || 0;
+              batch.update(communityRef, {
+                memberCount: Math.max(0, currentMemberCount - 1)
+              });
+            }
+          } catch (error) {
+            console.warn(`⚠️ [DELETE] Failed to update member count for community ${communityId}:`, error);
+          }
+        })()
       );
-      const messagesSnapshot = await getDocs(messagesQuery);
-
-      messagesSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-
-      // Delete thread messages
-      const threadMessagesQuery = query(
-        collection(db, 'communities', communityId, 'threadMessages'),
-        where('senderId', '==', uid)
-      );
-      const threadMessagesSnapshot = await getDocs(threadMessagesQuery);
-
-      threadMessagesSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-      });
-
-      console.log(`💬 [DELETE] Deleted messages from community: ${communityId}`);
-    }
-
-    // 5. Delete user's resources
-    console.log('📁 [DELETE] Step 5: Deleting user resources...');
-    const resourcesQuery = query(
-      collection(db, 'resources'),
-      where('uploadedBy', '==', uid)
-    );
-    const resourcesSnapshot = await getDocs(resourcesQuery);
-
-    resourcesSnapshot.forEach((doc) => {
-      batch.delete(doc.ref);
+      
+      console.log(`🏘️ [DELETE] Queued removal from community: ${communityId}`);
     });
-    console.log(`📁 [DELETE] Deleted ${resourcesSnapshot.size} resources`);
+    
+    // Execute community updates in parallel
+    await Promise.allSettled(communityUpdatePromises);
 
-    // 6. Delete user's announcements
-    console.log('📢 [DELETE] Step 6: Deleting user announcements...');
-    const announcementsQuery = query(
-      collection(db, 'announcements'),
-      where('authorId', '==', uid)
+    // 3. OPTIMIZATION: Community memberships already handled above
+
+    // 4. OPTIMIZATION: Execute all data deletion queries in parallel
+    console.log('🚀 [DELETE] Step 4: Executing parallel data deletion...');
+    
+    const deletionPromises = [
+      // Delete join requests
+      (async () => {
+        try {
+          const joinRequestsQuery = query(
+            collection(db, 'joinRequests'),
+            where('userId', '==', uid)
+          );
+          const joinRequestsSnapshot = await getDocs(joinRequestsQuery);
+          joinRequestsSnapshot.forEach((doc) => batch.delete(doc.ref));
+          console.log(`📝 [DELETE] Queued ${joinRequestsSnapshot.size} join requests for deletion`);
+        } catch (error) {
+          console.warn('⚠️ [DELETE] Failed to delete join requests:', error);
+        }
+      })(),
+      
+      // Delete top-level resources
+      (async () => {
+        try {
+          const resourcesQuery = query(
+            collection(db, 'resources'),
+            where('uploadedBy', '==', uid)
+          );
+          const resourcesSnapshot = await getDocs(resourcesQuery);
+          resourcesSnapshot.forEach((doc) => batch.delete(doc.ref));
+          console.log(`📁 [DELETE] Queued ${resourcesSnapshot.size} top-level resources for deletion`);
+        } catch (error) {
+          console.warn('⚠️ [DELETE] Failed to delete top-level resources:', error);
+        }
+      })(),
+      
+      // Delete community-specific data in parallel
+      ...userCommunityIds.map(communityId => 
+        (async () => {
+          try {
+            const communityDeletions = await Promise.allSettled([
+              // Messages
+              (async () => {
+                const messagesQuery = query(
+                  collection(db, 'communities', communityId, 'messages'),
+                  where('authorId', '==', uid)
+                );
+                const messagesSnapshot = await getDocs(messagesQuery);
+                
+                // Delete main messages and collect thread deletion promises
+                const threadDeletionPromises: Promise<void>[] = [];
+                
+                messagesSnapshot.forEach((messageDoc) => {
+                  batch.delete(messageDoc.ref);
+                  
+                  // Queue thread deletion (parallel execution)
+                  threadDeletionPromises.push(
+                    (async () => {
+                      try {
+                        const threadsQuery = query(
+                          collection(db, 'communities', communityId, 'messages', messageDoc.id, 'threads'),
+                          where('authorId', '==', uid)
+                        );
+                        const threadsSnapshot = await getDocs(threadsQuery);
+                        threadsSnapshot.forEach((threadDoc) => batch.delete(threadDoc.ref));
+                      } catch (threadError) {
+                        console.warn(`⚠️ [DELETE] Failed to delete threads for message ${messageDoc.id}:`, threadError);
+                      }
+                    })()
+                  );
+                });
+                
+                // Execute thread deletions in parallel
+                await Promise.allSettled(threadDeletionPromises);
+                console.log(`💬 [DELETE] Queued ${messagesSnapshot.size} messages + threads from community: ${communityId}`);
+              })(),
+              
+              // Community resources
+              (async () => {
+                const communityResourcesQuery = query(
+                  collection(db, 'communities', communityId, 'resources'),
+                  where('authorId', '==', uid)
+                );
+                const communityResourcesSnapshot = await getDocs(communityResourcesQuery);
+                communityResourcesSnapshot.forEach((doc) => batch.delete(doc.ref));
+                console.log(`📁 [DELETE] Queued ${communityResourcesSnapshot.size} resources from community: ${communityId}`);
+              })(),
+              
+              // Announcements
+              (async () => {
+                const announcementsQuery = query(
+                  collection(db, 'communities', communityId, 'announcements'),
+                  where('authorId', '==', uid)
+                );
+                const announcementsSnapshot = await getDocs(announcementsQuery);
+                announcementsSnapshot.forEach((doc) => batch.delete(doc.ref));
+                console.log(`📢 [DELETE] Queued ${announcementsSnapshot.size} announcements from community: ${communityId}`);
+              })()
+            ]);
+            
+            // Log any failures but don't stop the process
+            communityDeletions.forEach((result, index) => {
+              if (result.status === 'rejected') {
+                console.warn(`⚠️ [DELETE] Community ${communityId} deletion task ${index} failed:`, result.reason);
+              }
+            });
+          } catch (error) {
+            console.warn(`⚠️ [DELETE] Failed to process community ${communityId}:`, error);
+          }
+        })()
+      )
+    ];
+    
+    // Execute all deletion queries in parallel
+    await Promise.allSettled(deletionPromises);
+
+    // 5. Delete user-created communities completely
+    console.log('🏗️ [DELETE] Step 5: Deleting user-created communities...');
+    const communityDeletionPromises = createdCommunityIds.map(communityId => 
+      (async () => {
+        try {
+          console.log(`🏗️ [DELETE] Deleting entire community: ${communityId}`);
+          
+          // Create a separate batch for each community to avoid batch size limits
+          const communityBatch = writeBatch(db);
+          
+          // Delete all subcollections in parallel
+          const subcollectionDeletions = await Promise.allSettled([
+            // Delete all roles
+            (async () => {
+              const rolesQuery = query(collection(db, 'communities', communityId, 'roles'));
+              const rolesSnapshot = await getDocs(rolesQuery);
+              rolesSnapshot.forEach((doc) => communityBatch.delete(doc.ref));
+              console.log(`🏗️ [DELETE] Queued ${rolesSnapshot.size} roles from community: ${communityId}`);
+            })(),
+            
+            // Delete all messages and threads
+            (async () => {
+              const messagesQuery = query(collection(db, 'communities', communityId, 'messages'));
+              const messagesSnapshot = await getDocs(messagesQuery);
+              
+              const threadDeletionPromises: Promise<void>[] = [];
+              messagesSnapshot.forEach((messageDoc) => {
+                communityBatch.delete(messageDoc.ref);
+                
+                // Queue thread deletion
+                threadDeletionPromises.push(
+                  (async () => {
+                    try {
+                      const threadsQuery = query(
+                        collection(db, 'communities', communityId, 'messages', messageDoc.id, 'threads')
+                      );
+                      const threadsSnapshot = await getDocs(threadsQuery);
+                      threadsSnapshot.forEach((threadDoc) => communityBatch.delete(threadDoc.ref));
+                    } catch (threadError) {
+                      console.warn(`⚠️ [DELETE] Failed to delete threads for message ${messageDoc.id}:`, threadError);
+                    }
+                  })()
+                );
+              });
+              
+              await Promise.allSettled(threadDeletionPromises);
+              console.log(`🏗️ [DELETE] Queued ${messagesSnapshot.size} messages + threads from community: ${communityId}`);
+            })(),
+            
+            // Delete all resources
+            (async () => {
+              const resourcesQuery = query(collection(db, 'communities', communityId, 'resources'));
+              const resourcesSnapshot = await getDocs(resourcesQuery);
+              resourcesSnapshot.forEach((doc) => communityBatch.delete(doc.ref));
+              console.log(`🏗️ [DELETE] Queued ${resourcesSnapshot.size} resources from community: ${communityId}`);
+            })(),
+            
+            // Delete all announcements
+            (async () => {
+              const announcementsQuery = query(collection(db, 'communities', communityId, 'announcements'));
+              const announcementsSnapshot = await getDocs(announcementsQuery);
+              announcementsSnapshot.forEach((doc) => communityBatch.delete(doc.ref));
+              console.log(`🏗️ [DELETE] Queued ${announcementsSnapshot.size} announcements from community: ${communityId}`);
+            })(),
+            
+            // Delete all events
+            (async () => {
+              const eventsQuery = query(collection(db, 'communities', communityId, 'events'));
+              const eventsSnapshot = await getDocs(eventsQuery);
+              eventsSnapshot.forEach((doc) => communityBatch.delete(doc.ref));
+              console.log(`🏗️ [DELETE] Queued ${eventsSnapshot.size} events from community: ${communityId}`);
+            })()
+          ]);
+          
+          // Delete all community memberships for this community
+          const communityMembersForCommunityQuery = query(
+            collection(db, 'communityMembers'),
+            where('communityId', '==', communityId)
+          );
+          const communityMembersForCommunitySnapshot = await getDocs(communityMembersForCommunityQuery);
+          communityMembersForCommunitySnapshot.forEach((doc) => communityBatch.delete(doc.ref));
+          
+          // Delete all join requests for this community
+          const joinRequestsForCommunityQuery = query(
+            collection(db, 'joinRequests'),
+            where('communityId', '==', communityId)
+          );
+          const joinRequestsForCommunitySnapshot = await getDocs(joinRequestsForCommunityQuery);
+          joinRequestsForCommunitySnapshot.forEach((doc) => communityBatch.delete(doc.ref));
+          
+          // Finally, delete the community document itself
+          const communityRef = doc(db, 'communities', communityId);
+          communityBatch.delete(communityRef);
+          
+          // Commit the community deletion batch
+          await communityBatch.commit();
+          
+          console.log(`✅ [DELETE] Successfully deleted entire community: ${communityId}`);
+        } catch (error) {
+          console.error(`❌ [DELETE] Failed to delete community ${communityId}:`, error);
+          // Don't throw - continue with other deletions
+        }
+      })()
     );
-    const announcementsSnapshot = await getDocs(announcementsQuery);
+    
+    // Execute all community deletions in parallel
+    await Promise.allSettled(communityDeletionPromises);
 
-    announcementsSnapshot.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    console.log(`📢 [DELETE] Deleted ${announcementsSnapshot.size} announcements`);
-
-    // 7. Delete user profile document
-    console.log('👤 [DELETE] Step 7: Deleting user profile...');
+    // 6. Delete user profile document
+    console.log('👤 [DELETE] Step 6: Deleting user profile...');
     batch.delete(userRef);
 
-    // 8. Commit all Firestore deletions
-    console.log('💾 [DELETE] Step 8: Committing Firestore deletions...');
+    // 7. Commit all Firestore deletions
+    console.log('💾 [DELETE] Step 7: Committing Firestore deletions...');
     await batch.commit();
 
-    // 9. Delete user's avatar from storage
+    // 8. OPTIMIZATION: Execute storage and auth deletion in parallel
+    console.log('🚀 [DELETE] Step 8: Executing final cleanup in parallel...');
+    const finalCleanupPromises = [];
+    
+    // Delete user's avatar from storage (parallel)
     if (userPhotoURL) {
-      console.log('🖼️ [DELETE] Step 9: Deleting user avatar from storage...');
-      try {
-        await deleteUserAvatar(uid, userPhotoURL);
-      } catch (storageError) {
-        console.warn('⚠️ [DELETE] Failed to delete avatar from storage:', storageError);
-        // Don't fail the entire deletion for storage errors
-      }
+      finalCleanupPromises.push(
+        (async () => {
+          try {
+            console.log('🖼️ [DELETE] Deleting user avatar from storage...');
+            await deleteUserAvatar(uid, userPhotoURL);
+            console.log('✅ [DELETE] Avatar deleted successfully');
+          } catch (storageError) {
+            console.warn('⚠️ [DELETE] Failed to delete avatar from storage:', storageError);
+            // Don't fail the entire deletion for storage errors
+          }
+        })()
+      );
     }
+    
+    // Wait for storage cleanup to complete before auth deletion
+    await Promise.allSettled(finalCleanupPromises);
 
-    // 10. Delete Firebase Auth user (this must be last)
-    console.log('🔐 [DELETE] Step 10: Deleting Firebase Auth user...');
+    // 9. Delete Firebase Auth user (this must be last)
+    console.log('🔐 [DELETE] Step 9: Deleting Firebase Auth user...');
     if (auth.currentUser && auth.currentUser.uid === uid) {
       try {
         await deleteUser(auth.currentUser);
@@ -488,13 +682,14 @@ export const deleteUserAccount = async (uid: string): Promise<void> => {
       throw new Error('Authentication error: You must be logged in to delete your account');
     }
 
-    console.log('✅ [DELETE] Account deletion completed successfully');
+    const totalTime = Date.now() - startTime;
+    console.log(`✅ [DELETE] SUPER OPTIMIZED account deletion completed successfully in ${totalTime}ms`);
   } catch (error) {
-    console.error('❌ [DELETE] Account deletion failed:', error);
+    console.error('❌ [DELETE] OPTIMIZED account deletion failed:', error);
     throw new Error(
       error instanceof Error
-        ? `Account deletion failed: ${error.message}`
-        : 'Account deletion failed due to an unknown error'
+        ? `Optimized account deletion failed: ${error.message}`
+        : 'Optimized account deletion failed due to an unknown error'
     );
   }
 };

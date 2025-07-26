@@ -9,33 +9,35 @@ import { ResourceList } from '../Resources/ResourceList';
 
 export const ResourcesSection: React.FC = () => {
   const { activeCommunity } = useCommunityStore();
-  const { openModal, showToast } = useUIStore();
+  const { openModal } = useUIStore(); // Removed showToast to prevent infinite re-renders
   const { user } = useAuthStore();
   const {
     resources,
     loading,
     error,
-    loadResources,
     viewMode,
     setViewMode
-  } = useResourceStore();
+  } = useResourceStore(); // Removed loadResources to prevent infinite re-renders
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Load resources when component mounts or community changes
   useEffect(() => {
     if (activeCommunity?.id) {
-      console.log('🔄 Loading resources for community:', activeCommunity.id);
-      loadResources(activeCommunity.id).catch((error) => {
+      // FIXED: Use getState() to avoid function dependencies that cause infinite re-renders
+      const { loadResources: loadResourcesFunc } = useResourceStore.getState();
+      const { showToast: showToastFunc } = useUIStore.getState();
+      
+      loadResourcesFunc(activeCommunity.id).catch((error) => {
         console.error('Failed to load resources:', error);
-        showToast({
+        showToastFunc({
           type: 'error',
           title: 'Failed to Load Resources',
           message: 'Could not load community resources. Please try again.'
         });
       });
     }
-  }, [activeCommunity?.id, loadResources, showToast]);
+  }, [activeCommunity?.id]); // FIXED: Removed function dependencies
 
   // Early return after hooks
   if (!activeCommunity) return null;
@@ -50,15 +52,7 @@ export const ResourcesSection: React.FC = () => {
   // Show upload button for any authenticated user (we'll validate permissions in the upload modal)
   const showUploadButton = isAuthenticated && uploadsAllowed;
 
-  // Debug logging
-  console.log('🔍 Upload button visibility:', {
-    user: user?.uid,
-    isAuthenticated,
-    canUpload,
-    uploadsAllowed,
-    showUploadButton,
-    communityId: activeCommunity.id
-  });
+
 
   const handleUploadClick = () => {
     openModal('uploadResource', { communityId: activeCommunity.id });
@@ -69,14 +63,19 @@ export const ResourcesSection: React.FC = () => {
 
     setIsRefreshing(true);
     try {
-      await loadResources(activeCommunity.id);
-      showToast({
+      // FIXED: Use getState() to avoid function dependencies
+      const { loadResources: loadResourcesFunc } = useResourceStore.getState();
+      const { showToast: showToastFunc } = useUIStore.getState();
+      
+      await loadResourcesFunc(activeCommunity.id);
+      showToastFunc({
         type: 'success',
         title: 'Resources Refreshed',
         message: 'Resource list has been updated'
       });
     } catch {
-      showToast({
+      const { showToast: showToastFunc } = useUIStore.getState();
+      showToastFunc({
         type: 'error',
         title: 'Refresh Failed',
         message: 'Could not refresh resources. Please try again.'

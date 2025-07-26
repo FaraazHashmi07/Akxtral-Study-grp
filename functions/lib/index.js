@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getSuperAdminAnalytics = exports.deleteCommunityRecursively = exports.setupSuperAdmin = void 0;
+exports.cleanupProfileUpdateJobs = exports.processProfileUpdateJob = exports.getSuperAdminAnalytics = exports.deleteCommunityRecursively = exports.setupSuperAdmin = void 0;
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 // Initialize Firebase Admin
@@ -26,7 +26,7 @@ const storage = admin.storage();
 exports.setupSuperAdmin = functions.https.onCall(async (data, context) => {
     // This is a one-time setup function - add additional security if needed
     // For production, you might want to add IP restrictions or other security measures
-    const { email, setupKey } = data;
+    const { email, setupKey, password } = data;
     // Simple setup key verification (change this to something secure)
     if (setupKey !== 'SETUP_SUPER_ADMIN_2024') {
         throw new functions.https.HttpsError('permission-denied', 'Invalid setup key');
@@ -41,6 +41,14 @@ exports.setupSuperAdmin = functions.https.onCall(async (data, context) => {
         try {
             userRecord = await admin.auth().getUserByEmail(email);
             console.log(`✅ Found existing user: ${userRecord.uid}`);
+            // Update password if provided
+            if (password) {
+                await admin.auth().updateUser(userRecord.uid, {
+                    password: password,
+                    emailVerified: true
+                });
+                console.log(`🔑 Password updated for existing user: ${userRecord.uid}`);
+            }
         }
         catch (error) {
             // User doesn't exist, create them
@@ -49,7 +57,7 @@ exports.setupSuperAdmin = functions.https.onCall(async (data, context) => {
                 email: email,
                 emailVerified: true,
                 displayName: 'Super Admin',
-                password: 'TempPassword123!' // User should change this immediately
+                password: password || 'TempPassword123!' // Use provided password or default
             });
             console.log(`✅ Created new user: ${userRecord.uid}`);
         }
@@ -62,6 +70,8 @@ exports.setupSuperAdmin = functions.https.onCall(async (data, context) => {
             success: true,
             message: `Super Admin setup completed for ${email}`,
             uid: userRecord.uid,
+            email: email,
+            password: password || 'TempPassword123!',
             setupAt: admin.firestore.FieldValue.serverTimestamp()
         };
     }
@@ -277,5 +287,157 @@ exports.getSuperAdminAnalytics = functions.https.onCall(async (data, context) =>
         console.error('❌ Failed to generate analytics:', error);
         throw new functions.https.HttpsError('internal', `Failed to generate analytics: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+});
+/**
+ * Background job processor for profile updates
+ * Triggered when a new job is added to the profileUpdateJobs collection
+ */
+exports.processProfileUpdateJob = functions.firestore
+    .document('profileUpdateJobs/{jobId}')
+    .onCreate(async (snap, context) => {
+    var _a;
+    const jobData = snap.data();
+    const jobId = context.params.jobId;
+    console.log(`🔄 Processing profile update job: ${jobId}`);
+    try {
+        const { userId, displayName, photoURL, communities } = jobData;
+        const batch = db.batch();
+        let batchCount = 0;
+        const maxBatchSize = 500;
+        let totalUpdated = 0;
+        // Update job status to processing
+        await snap.ref.update({
+            status: 'processing',
+            startedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        // Process each community
+        for (const communityId of communities) {
+            console.log(`📝 Updating messages in community: ${communityId}`);
+            // Update messages in channels
+            const channelsSnapshot = await db
+                .collection('communities')
+                .doc(communityId)
+                .collection('channels')
+                .get();
+            for (const channelDoc of channelsSnapshot.docs) {
+                // Update main messages
+                const messagesQuery = channelDoc.ref
+                    .collection('messages')
+                    .where('authorId', '==', userId)
+                    .limit(100);
+                let messagesSnapshot = await messagesQuery.get();
+                while (!messagesSnapshot.empty) {
+                    for (const messageDoc of messagesSnapshot.docs) {
+                        batch.update(messageDoc.ref, {
+                            authorName: displayName,
+                            authorAvatar: photoURL || null
+                        });
+                        batchCount++;
+                        totalUpdated++;
+                        // Commit batch if it reaches max size
+                        if (batchCount >= maxBatchSize) {
+                            await batch.commit();
+                            console.log(`✅ Committed batch of ${batchCount} updates`);
+                            batchCount = 0;
+                        }
+                    }
+                    // Get next batch of messages
+                    const lastDoc = messagesSnapshot.docs[messagesSnapshot.docs.length - 1];
+                    messagesSnapshot = await channelDoc.ref
+                        .collection('messages')
+                        .where('authorId', '==', userId)
+                        .startAfter(lastDoc)
+                        .limit(100)
+                        .get();
+                }
+                // Update thread messages
+                const threadMessagesSnapshot = await channelDoc.ref
+                    .collection('messages')
+                    .where('threadMessages', 'array-contains', { authorId: userId })
+                    .get();
+                for (const messageDoc of threadMessagesSnapshot.docs) {
+                    const messageData = messageDoc.data();
+                    const updatedThreadMessages = (_a = messageData.threadMessages) === null || _a === void 0 ? void 0 : _a.map((thread) => {
+                        if (thread.authorId === userId) {
+                            return Object.assign(Object.assign({}, thread), { authorName: displayName, authorAvatar: photoURL || null });
+                        }
+                        return thread;
+                    });
+                    if (updatedThreadMessages) {
+                        batch.update(messageDoc.ref, {
+                            threadMessages: updatedThreadMessages
+                        });
+                        batchCount++;
+                        totalUpdated++;
+                        if (batchCount >= maxBatchSize) {
+                            await batch.commit();
+                            console.log(`✅ Committed batch of ${batchCount} updates`);
+                            batchCount = 0;
+                        }
+                    }
+                }
+            }
+            // Update reply references
+            const replyMessagesSnapshot = await db
+                .collectionGroup('messages')
+                .where('replyToSenderId', '==', userId)
+                .get();
+            for (const messageDoc of replyMessagesSnapshot.docs) {
+                batch.update(messageDoc.ref, {
+                    replyToSenderName: displayName
+                });
+                batchCount++;
+                totalUpdated++;
+                if (batchCount >= maxBatchSize) {
+                    await batch.commit();
+                    console.log(`✅ Committed batch of ${batchCount} updates`);
+                    batchCount = 0;
+                }
+            }
+        }
+        // Commit any remaining updates
+        if (batchCount > 0) {
+            await batch.commit();
+            console.log(`✅ Committed final batch of ${batchCount} updates`);
+        }
+        // Mark job as completed
+        await snap.ref.update({
+            status: 'completed',
+            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            totalUpdated: totalUpdated
+        });
+        console.log(`🎉 Profile update job ${jobId} completed. Updated ${totalUpdated} messages.`);
+    }
+    catch (error) {
+        console.error(`❌ Profile update job ${jobId} failed:`, error);
+        // Mark job as failed
+        await snap.ref.update({
+            status: 'failed',
+            failedAt: admin.firestore.FieldValue.serverTimestamp(),
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+/**
+ * Cleanup completed profile update jobs
+ * Runs daily to remove old completed jobs
+ */
+exports.cleanupProfileUpdateJobs = functions.pubsub
+    .schedule('0 2 * * *') // Run at 2 AM daily
+    .timeZone('UTC')
+    .onRun(async (context) => {
+    console.log('🧹 Starting cleanup of old profile update jobs');
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const oldJobsSnapshot = await db
+        .collection('profileUpdateJobs')
+        .where('completedAt', '<', sevenDaysAgo)
+        .get();
+    const batch = db.batch();
+    oldJobsSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+    });
+    await batch.commit();
+    console.log(`🗑️ Cleaned up ${oldJobsSnapshot.size} old profile update jobs`);
 });
 //# sourceMappingURL=index.js.map
