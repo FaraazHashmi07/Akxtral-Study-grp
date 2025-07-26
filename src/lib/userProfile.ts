@@ -306,27 +306,157 @@ export const getCommunityMembers = async (communityId: string): Promise<Array<Us
   }
 };
 
-// Delete user account completely
+// Delete user account and all related data comprehensively
 export const deleteUserAccount = async (uid: string): Promise<void> => {
   try {
+    console.log('🗑️ [DELETE] Starting comprehensive account deletion for user:', uid);
+
     const batch = writeBatch(db);
-    
-    // Delete user profile
+
+    // 1. Get user profile to check for avatar
+    console.log('📋 [DELETE] Step 1: Getting user profile...');
     const userRef = doc(db, 'users', uid);
+    const userSnap = await getDoc(userRef);
+    let userPhotoURL = '';
+
+    if (userSnap.exists()) {
+      const userData = userSnap.data();
+      userPhotoURL = userData.photoURL || '';
+    }
+
+    // 2. Get all communities where user is a member
+    console.log('🏘️ [DELETE] Step 2: Finding user communities...');
+    const communitiesQuery = query(collection(db, 'communities'));
+    const communitiesSnapshot = await getDocs(communitiesQuery);
+
+    const userCommunityIds: string[] = [];
+
+    for (const communityDoc of communitiesSnapshot.docs) {
+      const communityId = communityDoc.id;
+
+      // Check if user is a member of this community
+      const memberRef = doc(db, 'communities', communityId, 'members', uid);
+      const memberSnap = await getDoc(memberRef);
+
+      if (memberSnap.exists()) {
+        userCommunityIds.push(communityId);
+
+        // Remove user from community members
+        batch.delete(memberRef);
+
+        // Update community member count
+        const communityData = communityDoc.data();
+        const currentMemberCount = communityData.memberCount || 0;
+        batch.update(communityDoc.ref, {
+          memberCount: Math.max(0, currentMemberCount - 1)
+        });
+
+        console.log(`🏘️ [DELETE] Removing user from community: ${communityId}`);
+      }
+    }
+
+    // 3. Delete all join requests by this user
+    console.log('📝 [DELETE] Step 3: Deleting join requests...');
+    const joinRequestsQuery = query(
+      collection(db, 'joinRequests'),
+      where('uid', '==', uid)
+    );
+    const joinRequestsSnapshot = await getDocs(joinRequestsQuery);
+
+    joinRequestsSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+      console.log(`📝 [DELETE] Deleting join request: ${doc.id}`);
+    });
+
+    // 4. Delete user's messages from all communities
+    console.log('💬 [DELETE] Step 4: Deleting user messages...');
+    for (const communityId of userCommunityIds) {
+      // Delete messages in main chat
+      const messagesQuery = query(
+        collection(db, 'communities', communityId, 'messages'),
+        where('senderId', '==', uid)
+      );
+      const messagesSnapshot = await getDocs(messagesQuery);
+
+      messagesSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      // Delete thread messages
+      const threadMessagesQuery = query(
+        collection(db, 'communities', communityId, 'threadMessages'),
+        where('senderId', '==', uid)
+      );
+      const threadMessagesSnapshot = await getDocs(threadMessagesQuery);
+
+      threadMessagesSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      console.log(`💬 [DELETE] Deleted messages from community: ${communityId}`);
+    }
+
+    // 5. Delete user's resources
+    console.log('📁 [DELETE] Step 5: Deleting user resources...');
+    const resourcesQuery = query(
+      collection(db, 'resources'),
+      where('uploadedBy', '==', uid)
+    );
+    const resourcesSnapshot = await getDocs(resourcesQuery);
+
+    resourcesSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    console.log(`📁 [DELETE] Deleted ${resourcesSnapshot.size} resources`);
+
+    // 6. Delete user's announcements
+    console.log('📢 [DELETE] Step 6: Deleting user announcements...');
+    const announcementsQuery = query(
+      collection(db, 'announcements'),
+      where('authorId', '==', uid)
+    );
+    const announcementsSnapshot = await getDocs(announcementsQuery);
+
+    announcementsSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    console.log(`📢 [DELETE] Deleted ${announcementsSnapshot.size} announcements`);
+
+    // 7. Delete user profile document
+    console.log('👤 [DELETE] Step 7: Deleting user profile...');
     batch.delete(userRef);
-    
-    // Delete user's community roles
-    // Note: This is a simplified version. In production, you'd want to use Cloud Functions
-    // to handle cascading deletes across all communities
-    
+
+    // 8. Commit all Firestore deletions
+    console.log('💾 [DELETE] Step 8: Committing Firestore deletions...');
     await batch.commit();
-    
-    // Delete Firebase Auth user (must be done by the user themselves or admin)
+
+    // 9. Delete user's avatar from storage
+    if (userPhotoURL) {
+      console.log('🖼️ [DELETE] Step 9: Deleting user avatar from storage...');
+      try {
+        await deleteUserAvatar(uid, userPhotoURL);
+      } catch (storageError) {
+        console.warn('⚠️ [DELETE] Failed to delete avatar from storage:', storageError);
+        // Don't fail the entire deletion for storage errors
+      }
+    }
+
+    // 10. Delete Firebase Auth user (this must be last)
+    console.log('🔐 [DELETE] Step 10: Deleting Firebase Auth user...');
     if (auth.currentUser && auth.currentUser.uid === uid) {
       await deleteUser(auth.currentUser);
+    } else {
+      console.warn('⚠️ [DELETE] Current user mismatch or not authenticated');
+      throw new Error('Authentication error: Cannot delete user account');
     }
+
+    console.log('✅ [DELETE] Account deletion completed successfully');
   } catch (error) {
-    console.error('Error deleting user account:', error);
-    throw error;
+    console.error('❌ [DELETE] Account deletion failed:', error);
+    throw new Error(
+      error instanceof Error
+        ? `Account deletion failed: ${error.message}`
+        : 'Account deletion failed due to an unknown error'
+    );
   }
 };

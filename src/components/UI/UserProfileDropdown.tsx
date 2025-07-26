@@ -1,15 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  User, 
-  Settings, 
-  LogOut, 
-  Moon, 
-  Sun, 
+import {
+  User,
+  Settings,
+  LogOut,
+  Moon,
+  Sun,
   Monitor,
-  Bell,
-  Shield,
-  HelpCircle,
   ChevronDown
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -196,29 +193,7 @@ export const UserProfileDropdown: React.FC = () => {
                 <span>Account Settings</span>
               </button>
 
-              {/* Notifications */}
-              <button
-                onClick={() => {
-                  // TODO: Implement notification settings
-                  setIsOpen(false);
-                }}
-                className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                <Bell size={16} />
-                <span>Notifications</span>
-              </button>
 
-              {/* Privacy */}
-              <button
-                onClick={() => {
-                  // TODO: Implement privacy settings
-                  setIsOpen(false);
-                }}
-                className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                <Shield size={16} />
-                <span>Privacy & Safety</span>
-              </button>
 
               {/* Theme Selector */}
               <div className="px-4 py-2">
@@ -252,18 +227,6 @@ export const UserProfileDropdown: React.FC = () => {
 
               {/* Divider */}
               <div className="border-t border-gray-200 dark:border-gray-700 my-2" />
-
-              {/* Help */}
-              <button
-                onClick={() => {
-                  // TODO: Implement help/support
-                  setIsOpen(false);
-                }}
-                className="w-full flex items-center space-x-3 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              >
-                <HelpCircle size={16} />
-                <span>Help & Support</span>
-              </button>
 
               {/* Sign Out */}
               <button
