@@ -1,11 +1,147 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Search, Home, Settings, Crown } from 'lucide-react';
+import { Plus, Search, Home, Crown } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 import { isCommunityAdminEnhanced } from '../../lib/authorization';
 import { Community } from '../../types';
+
+// Discord-style CSS for the community rail
+const discordRailStyles = `
+  :root {
+    --accent-color: #5865F2;
+    --rail-bg: #1E1F22;
+    --icon-default: #36393F;
+    --icon-hover: #4F545C;
+    --text-muted: #B9BBBE;
+    --text-bright: #DCDDDE;
+  }
+
+  .discord-rail {
+    width: 72px;
+    background-color: var(--rail-bg);
+    padding: 12px 8px;
+    position: relative;
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .discord-rail .communities-container {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    position: relative;
+    min-height: 0;
+    max-height: calc(100vh - 200px);
+    padding-bottom: 8px;
+  }
+
+  .discord-rail .communities-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  .discord-icon-container {
+    position: relative;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 48px;
+    height: 48px;
+  }
+
+  .discord-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background-color: var(--icon-default);
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+    transition: all 150ms ease-out;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .discord-icon:hover {
+    background-color: var(--icon-hover);
+    color: var(--text-bright);
+    border-radius: 16px;
+    transform: scale(1.05);
+  }
+
+  .discord-icon.active {
+    background-color: var(--accent-color);
+    color: white;
+    border-radius: 16px;
+  }
+
+  .discord-icon.active:hover {
+    background-color: var(--accent-color);
+    color: white;
+  }
+
+  .active-indicator {
+    position: absolute;
+    left: -8px;
+    top: 0;
+    width: 4px;
+    height: 48px;
+    background-color: var(--accent-color);
+    border-radius: 0 2px 2px 0;
+    transition: all 200ms ease-out;
+    z-index: 20;
+  }
+
+  .discord-rail .active-indicator {
+    animation: slideIn 200ms ease-out;
+  }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: scaleY(0);
+    }
+    to {
+      opacity: 1;
+      transform: scaleY(1);
+    }
+  }
+
+  .admin-crown {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 16px;
+    height: 16px;
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 15;
+    border: 2px solid var(--rail-bg);
+  }
+
+  .separator {
+    width: 32px;
+    height: 2px;
+    background-color: #4F545C;
+    border-radius: 1px;
+    margin: 8px auto;
+  }
+`;
 
 export const CommunityRail: React.FC = () => {
   const { joinedCommunities, activeCommunity, setActiveCommunity, loading, error } = useCommunityStore();
@@ -18,6 +154,26 @@ export const CommunityRail: React.FC = () => {
 
   const [hoveredCommunity, setHoveredCommunity] = useState<string | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
+
+  // Add Discord styles to document head
+  React.useEffect(() => {
+    const styleElement = document.createElement('style');
+    styleElement.textContent = discordRailStyles;
+    document.head.appendChild(styleElement);
+
+    return () => {
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+
+  // Ensure proper initial state on component mount
+  React.useEffect(() => {
+    // If no active community is set, ensure we're in Home state
+    if (!activeCommunity && !loading) {
+      console.log('🏠 [RAIL] Ensuring Home state on mount');
+      setUIActiveCommunity(null);
+    }
+  }, [activeCommunity, loading, setUIActiveCommunity]);
 
   // Deduplicate communities by ID to prevent React key conflicts
   const uniqueCommunities = React.useMemo(() => {
@@ -50,6 +206,8 @@ export const CommunityRail: React.FC = () => {
 
     return unique;
   }, [joinedCommunities]);
+
+
 
   const handleCommunitySelect = (community: Community) => {
     if (isSelecting) return; // Prevent multiple rapid clicks
@@ -107,64 +265,63 @@ export const CommunityRail: React.FC = () => {
   };
 
   return (
-    <div className="w-16 bg-gray-900 dark:bg-gray-950 flex flex-col items-center py-3 space-y-2">
+    <div className="discord-rail" role="navigation" aria-label="Community Navigation">
       {/* Home/Dashboard Button */}
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => {
-          console.log('🏠 [RAIL] Home button clicked - clearing active community');
+      <div className="discord-icon-container">
+        {!activeCommunity && (
+          <div className="active-indicator" />
+        )}
+        <button
+          onClick={() => {
+            console.log('🏠 [RAIL] Home button clicked - clearing all community state');
 
-          // Clear both stores in the correct order
-          // First clear the UI store (this triggers MainContent re-render)
-          setUIActiveCommunity(null);
+            // Clear both stores in the correct order and reset section
+            setUIActiveCommunity(null);
+            setActiveCommunity(null);
 
-          // Then clear the community store
-          setActiveCommunity(null);
-
-          // Force a small delay to ensure state propagation
-          setTimeout(() => {
-            console.log('✅ [RAIL] Home navigation completed - states cleared');
-          }, 50);
-        }}
-        className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 ${
-          !activeCommunity
-            ? 'bg-blue-600 text-white rounded-xl'
-            : 'bg-gray-700 hover:bg-blue-600 text-gray-300 hover:text-white hover:rounded-xl'
-        }`}
-        title="Home"
-      >
-        <Home size={20} />
-      </motion.button>
+            // Force immediate state update to prevent grey space
+            setTimeout(() => {
+              console.log('✅ [RAIL] Home navigation completed - showing HomeSection');
+            }, 10);
+          }}
+          className={`discord-icon ${!activeCommunity ? 'active' : ''}`}
+          title="Home"
+          aria-label="Home"
+        >
+          <Home size={20} />
+        </button>
+      </div>
 
       {/* Separator */}
-      <div className="w-8 h-0.5 bg-gray-700 rounded-full" />
+      <div className="separator" />
 
       {/* Joined Communities */}
-      <div className="flex flex-col space-y-2 flex-1 overflow-y-auto scrollbar-hide">
+      <div className="relative flex-1 min-h-0">
+        <div className="communities-container flex flex-col">
         {loading && uniqueCommunities.length === 0 ? (
-          // Loading state
-          <div className="flex flex-col space-y-2">
+          // Loading state with Discord styling
+          <div className="flex flex-col">
             {[1, 2, 3].map((i) => (
-              <div
-                key={`loading-${i}`}
-                className="w-12 h-12 rounded-2xl bg-gray-700 animate-pulse"
-              />
+              <div key={`loading-${i}`} className="discord-icon-container">
+                <div className="discord-icon animate-pulse" style={{ backgroundColor: '#4F545C' }} />
+              </div>
             ))}
           </div>
         ) : error ? (
           // Error state
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-8 h-8 rounded-full bg-red-600 mb-2 opacity-50 flex items-center justify-center">
-              <span className="text-xs text-white">!</span>
+            <div className="discord-icon" style={{ backgroundColor: '#ED4245', color: 'white' }}>
+              !
             </div>
-            <p className="text-xs text-red-400 px-2">Failed to load</p>
+            <p className="text-xs text-gray-400 mt-2 px-2">Failed to load</p>
           </div>
         ) : uniqueCommunities.length === 0 ? (
           // Empty state
           <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="w-8 h-8 rounded-full bg-gray-600 mb-2 opacity-50" />
-            <p className="text-xs text-gray-400 px-2">No communities yet</p>
+            <div className="discord-icon" style={{ backgroundColor: '#4F545C', color: '#B9BBBE' }}>
+              ?
+            </div>
+            <p className="text-xs text-gray-400 mt-2 px-2">No communities yet</p>
           </div>
         ) : (
           // Communities list with unique entries
@@ -179,42 +336,37 @@ export const CommunityRail: React.FC = () => {
             />
           ))
         )}
-      </div>
 
-      {/* Action Buttons */}
-      <div className="flex flex-col space-y-2 mt-auto">
-        {/* Discover Communities */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleDiscoverCommunities}
-          className="w-12 h-12 rounded-2xl bg-gray-700 hover:bg-green-600 text-gray-300 hover:text-white flex items-center justify-center transition-all duration-200 hover:rounded-xl"
-          title="Discover Communities"
-        >
-          <Search size={20} />
-        </motion.button>
+        {/* Action Buttons - Now inside scrollable container */}
+        <div className="flex flex-col mt-4">
+          {/* Separator */}
+          <div className="separator" />
 
-        {/* Create Community */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleCreateCommunity}
-          className="w-12 h-12 rounded-2xl bg-gray-700 hover:bg-green-600 text-gray-300 hover:text-white flex items-center justify-center transition-all duration-200 hover:rounded-xl"
-          title="Create Community"
-        >
-          <Plus size={20} />
-        </motion.button>
+          {/* Discover Communities */}
+          <div className="discord-icon-container">
+            <button
+              onClick={handleDiscoverCommunities}
+              className="discord-icon"
+              title="Discover Communities"
+              aria-label="Discover Communities"
+            >
+              <Search size={20} />
+            </button>
+          </div>
 
-        {/* Settings */}
-        <motion.button
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => openModal('userSettings')}
-          className="w-12 h-12 rounded-2xl bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white flex items-center justify-center transition-all duration-200 hover:rounded-xl"
-          title="User Settings"
-        >
-          <Settings size={16} />
-        </motion.button>
+          {/* Create Community */}
+          <div className="discord-icon-container">
+            <button
+              onClick={handleCreateCommunity}
+              className="discord-icon"
+              title="Create Community"
+              aria-label="Create Community"
+            >
+              <Plus size={20} />
+            </button>
+          </div>
+        </div>
+        </div>
       </div>
 
       {/* Hover Tooltip */}
@@ -224,10 +376,12 @@ export const CommunityRail: React.FC = () => {
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -10 }}
-            className="fixed left-20 bg-gray-800 dark:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm font-medium shadow-lg z-50 pointer-events-none border border-gray-600"
+            className="fixed left-20 bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-lg z-50 pointer-events-none"
             style={{
               top: '50%',
-              transform: 'translateY(-50%)'
+              transform: 'translateY(-50%)',
+              backgroundColor: '#18191C',
+              border: '1px solid #4F545C'
             }}
           >
             <div className="flex items-center space-x-2">
@@ -273,92 +427,56 @@ const CommunityAvatar: React.FC<CommunityAvatarProps> = ({
 
   const getCommunityColor = (category: string) => {
     const colors = {
-      'mathematics': 'bg-blue-600',
-      'physics': 'bg-purple-600',
-      'chemistry': 'bg-green-600',
-      'biology': 'bg-emerald-600',
-      'computer-science': 'bg-indigo-600',
-      'engineering': 'bg-orange-600',
-      'literature': 'bg-pink-600',
-      'history': 'bg-yellow-600',
-      'other': 'bg-gray-600'
+      'mathematics': '#3B82F6',
+      'physics': '#8B5CF6',
+      'chemistry': '#10B981',
+      'biology': '#059669',
+      'computer-science': '#6366F1',
+      'engineering': '#F97316',
+      'literature': '#EC4899',
+      'history': '#EAB308',
+      'other': '#6B7280'
     };
     return colors[category as keyof typeof colors] || colors.other;
   };
 
   return (
-    <div className="relative">
+    <div className="discord-icon-container">
       {/* Active indicator */}
-      <motion.div
-        initial={false}
-        animate={{
-          height: isActive ? 40 : 0,
-          opacity: isActive ? 1 : 0
-        }}
-        className={`absolute -left-1 top-1/2 transform -translate-y-1/2 w-1 rounded-r-full ${
-          isAdmin ? 'bg-yellow-400' : 'bg-white'
-        }`}
-      />
+      {isActive && (
+        <div className="active-indicator" />
+      )}
 
       {/* Admin crown indicator */}
       {isAdmin && (
-        <motion.div
-          initial={{ scale: 0, rotate: -180 }}
-          animate={{ scale: 1, rotate: 0 }}
-          className="absolute -top-1 -right-1 w-5 h-5 bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-full flex items-center justify-center z-10 shadow-lg border-2 border-gray-900"
-        >
-          <Crown size={10} className="text-gray-900" />
-        </motion.div>
+        <div className="admin-crown">
+          <Crown size={8} color="#1E1F22" />
+        </div>
       )}
 
-      {/* Admin glow effect */}
-      {isAdmin && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute inset-0 rounded-2xl bg-gradient-to-br from-yellow-400/20 to-yellow-600/20 dark:from-yellow-400/30 dark:to-yellow-600/30 blur-sm -z-10"
-        />
-      )}
-
-      <motion.button
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.95 }}
+      <button
         onClick={onClick}
         onMouseEnter={() => onHover(community.name)}
         onMouseLeave={() => onHover(null)}
-        className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white font-semibold text-sm transition-all duration-200 relative overflow-hidden ${
-          isActive
-            ? 'rounded-xl shadow-lg'
-            : 'hover:rounded-xl'
-        } ${
-          isAdmin
-            ? 'ring-2 ring-yellow-400/50 dark:ring-yellow-400/60 shadow-lg shadow-yellow-400/25 dark:shadow-yellow-400/40'
-            : ''
-        } ${getCommunityColor(community.category)}`}
+        className={`discord-icon ${isActive ? 'active' : ''}`}
+        style={{
+          backgroundColor: isActive ? '#5865F2' : getCommunityColor(community.category),
+          color: 'white'
+        }}
         title={`${community.name}${isAdmin ? ' (Admin)' : ''}`}
+        aria-label={`${community.name}${isAdmin ? ' (Admin)' : ''}`}
       >
-        {/* Admin background overlay */}
-        {isAdmin && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="absolute inset-0 bg-gradient-to-br from-yellow-400/10 to-transparent dark:from-yellow-400/15"
-          />
-        )}
-
         {community.iconUrl ? (
           <img
             src={community.iconUrl}
             alt={community.name}
-            className="w-full h-full object-cover relative z-10"
+            className="w-full h-full object-cover rounded-full"
+            style={{ borderRadius: 'inherit' }}
           />
         ) : (
-          <span className="relative z-10">{getInitials(community.name)}</span>
+          <span className="font-semibold text-sm">{getInitials(community.name)}</span>
         )}
-
-        {/* Unread indicator */}
-        {/* TODO: Add unread message count when implemented */}
-      </motion.button>
+      </button>
     </div>
   );
 };

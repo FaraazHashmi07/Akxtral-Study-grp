@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, X } from 'lucide-react';
+import { Upload, X, Image as ImageIcon, Trash2 } from 'lucide-react';
 import { BaseModal } from '../UI/ModalContainer';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { Community } from '../../types';
+import { UploadProgress } from '../../services/storageService';
+import { createCommunityWithIcon } from '../../services/communityService';
+import { useAuthStore } from '../../store/authStore';
 
 export const CreateCommunityModal: React.FC = () => {
   const { createCommunity } = useCommunityStore();
   const { closeModal, showToast } = useUIStore();
+  const { user } = useAuthStore();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -24,6 +28,14 @@ export const CreateCommunityModal: React.FC = () => {
   const [tagInput, setTagInput] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Icon upload state
+  const [iconFile, setIconFile] = useState<File | null>(null);
+  const [iconPreview, setIconPreview] = useState<string | null>(null);
+  const [iconUploading, setIconUploading] = useState(false);
+  const [iconUploadProgress, setIconUploadProgress] = useState<UploadProgress | null>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const categories = [
     { value: 'mathematics', label: 'Mathematics' },
     { value: 'physics', label: 'Physics' },
@@ -35,6 +47,91 @@ export const CreateCommunityModal: React.FC = () => {
     { value: 'history', label: 'History' },
     { value: 'other', label: 'Other' }
   ];
+
+  // Icon upload handlers
+  const validateIconFile = (file: File): { isValid: boolean; error?: string } => {
+    // Check file type
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
+    if (!allowedTypes.includes(file.type)) {
+      return {
+        isValid: false,
+        error: 'Please select a PNG, JPG, JPEG, or SVG file'
+      };
+    }
+
+    // Check file size (2MB limit)
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (file.size > maxSize) {
+      return {
+        isValid: false,
+        error: `File size must be less than 2MB. Current size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`
+      };
+    }
+
+    return { isValid: true };
+  };
+
+  const handleIconFileSelect = useCallback((file: File) => {
+    console.log('📁 [ICON] File selected:', file.name, file.type, file.size);
+
+    const validation = validateIconFile(file);
+    if (!validation.isValid) {
+      showToast({
+        type: 'error',
+        title: 'Invalid File',
+        message: validation.error || 'Invalid file selected'
+      });
+      return;
+    }
+
+    setIconFile(file);
+
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(file);
+    setIconPreview(previewUrl);
+
+    console.log('✅ [ICON] File validated and preview created');
+  }, [showToast]);
+
+  const handleIconInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleIconFileSelect(file);
+    }
+  };
+
+  const handleIconDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      handleIconFileSelect(file);
+    }
+  }, [handleIconFileSelect]);
+
+  const handleIconDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(true);
+  };
+
+  const handleIconDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+  };
+
+  const removeIcon = () => {
+    setIconFile(null);
+    if (iconPreview) {
+      URL.revokeObjectURL(iconPreview);
+      setIconPreview(null);
+    }
+    setIconUploadProgress(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    console.log('🗑️ [ICON] Icon removed');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,7 +148,17 @@ export const CreateCommunityModal: React.FC = () => {
       return;
     }
 
+    if (!user) {
+      showToast({
+        type: 'error',
+        title: 'Authentication Error',
+        message: 'You must be logged in to create a community'
+      });
+      return;
+    }
+
     setLoading(true);
+
     try {
       console.log('🚀 Creating community with form data:', formData);
 
@@ -59,7 +166,7 @@ export const CreateCommunityModal: React.FC = () => {
         ...formData,
         name: formData.name.trim(),
         description: formData.description.trim(),
-        visibility: formData.visibility, // Explicitly ensure visibility is passed
+        visibility: formData.visibility,
         settings: {
           allowMemberInvites: true,
           allowFileUploads: true,
@@ -70,15 +177,39 @@ export const CreateCommunityModal: React.FC = () => {
 
       console.log('📝 Final community data being sent:', communityData);
 
-      const community = await createCommunity(communityData);
+      // Use the new service function that handles icon upload
+      const community = await createCommunityWithIcon(
+        communityData,
+        user.uid,
+        iconFile || undefined,
+        (progress) => {
+          setIconUploadProgress(progress);
+          setIconUploading(true);
+          console.log(`📤 [ICON] Upload progress: ${progress.percentage}%`);
+        },
+        user.email,
+        user.displayName
+      );
 
       console.log('✅ Community created successfully:', community);
+
+      // Update the store with the new community
+      const { joinedCommunities, setActiveCommunity } = useCommunityStore.getState();
+      useCommunityStore.setState({
+        joinedCommunities: [...joinedCommunities, community],
+        activeCommunity: community
+      });
 
       showToast({
         type: 'success',
         title: 'Community Created',
-        message: `${formData.name} has been created successfully! It should now be visible to other users.`
+        message: `${formData.name} has been created successfully! ${iconFile ? 'Icon uploaded successfully.' : ''}`
       });
+
+      // Cleanup preview URL
+      if (iconPreview) {
+        URL.revokeObjectURL(iconPreview);
+      }
 
       closeModal();
     } catch (error) {
@@ -90,6 +221,8 @@ export const CreateCommunityModal: React.FC = () => {
       });
     } finally {
       setLoading(false);
+      setIconUploading(false);
+      setIconUploadProgress(null);
     }
   };
 
@@ -150,6 +283,125 @@ export const CreateCommunityModal: React.FC = () => {
               rows={3}
               maxLength={500}
             />
+          </div>
+
+          {/* Community Icon Upload */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Community Icon (Optional)
+            </label>
+            <div className="space-y-3">
+              {/* Upload Area */}
+              <div
+                onDrop={handleIconDrop}
+                onDragOver={handleIconDragOver}
+                onDragLeave={handleIconDragLeave}
+                className={`relative border-2 border-dashed rounded-lg p-6 transition-colors ${
+                  dragActive
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                    : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+                }`}
+              >
+                {!iconPreview && (
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+                    onChange={handleIconInputChange}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={iconUploading || loading}
+                  />
+                )}
+
+                <div className="text-center">
+                  {iconPreview ? (
+                    /* Preview */
+                    <div className="flex items-center justify-center space-x-4">
+                      <div className="relative">
+                        <img
+                          src={iconPreview}
+                          alt="Icon preview"
+                          className="w-16 h-16 rounded-lg object-cover border border-gray-200 dark:border-gray-600"
+                        />
+                        {iconUploading && (
+                          <div className="absolute inset-0 bg-black bg-opacity-50 rounded-lg flex items-center justify-center">
+                            <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 text-left">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {iconFile?.name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {iconFile ? `${(iconFile.size / 1024).toFixed(1)} KB` : ''}
+                        </p>
+                        {iconUploadProgress && (
+                          <div className="mt-2">
+                            <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
+                              <span>Uploading...</span>
+                              <span>{iconUploadProgress.percentage}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-1">
+                              <div
+                                className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                                style={{ width: `${iconUploadProgress.percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          removeIcon();
+                        }}
+                        disabled={iconUploading || loading}
+                        className="p-2 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50"
+                        title="Remove icon"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    /* Upload prompt */
+                    <div>
+                      <ImageIcon size={32} className="mx-auto text-gray-400 mb-2" />
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                        <span className="font-medium text-blue-600 dark:text-blue-400">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-500">
+                        PNG, JPG, JPEG, or SVG (max 2MB)
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Add a "Change Image" button when preview is shown */}
+                {iconPreview && (
+                  <div className="mt-4 text-center">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={iconUploading || loading}
+                      className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-50"
+                    >
+                      Change Image
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/svg+xml"
+                      onChange={handleIconInputChange}
+                      className="hidden"
+                      disabled={iconUploading || loading}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -265,13 +517,20 @@ export const CreateCommunityModal: React.FC = () => {
           </button>
           <button
             type="submit"
-            disabled={loading || !formData.name.trim()}
+            disabled={loading || iconUploading || !formData.name.trim()}
             className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
           >
-            {loading && (
+            {(loading || iconUploading) && (
               <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             )}
-            <span>{loading ? 'Creating...' : 'Create Community'}</span>
+            <span>
+              {iconUploading
+                ? 'Uploading Icon...'
+                : loading
+                ? 'Creating...'
+                : 'Create Community'
+              }
+            </span>
           </button>
         </div>
       </form>

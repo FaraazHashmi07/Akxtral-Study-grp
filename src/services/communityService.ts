@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Community, CommunityMember, JoinRequest, CommunityFilter } from '../types';
+import { uploadCommunityIcon, UploadProgress } from './storageService';
 
 // Collection references
 const communitiesRef = collection(db, 'communities');
@@ -138,8 +139,8 @@ export const createCommunity = async (
       createdAt: new Date(), // Use current date for immediate UI update
       lastActivity: new Date(),
       settings: communityDoc.settings,
-      bannerUrl: communityDoc.bannerUrl,
-      iconUrl: communityDoc.iconUrl
+      bannerUrl: communityDoc.bannerUrl || undefined,
+      iconUrl: communityDoc.iconUrl || undefined
     };
 
     console.log('🎉 Community creation completed successfully:', community);
@@ -153,6 +154,77 @@ export const createCommunity = async (
       stack: error instanceof Error ? error.stack : undefined
     });
     throw new Error(`Failed to create community: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+};
+
+/**
+ * Creates a community with optional icon upload
+ */
+export const createCommunityWithIcon = async (
+  communityData: Partial<Community>,
+  creatorId: string,
+  iconFile?: File,
+  onProgress?: (progress: UploadProgress) => void,
+  creatorEmail?: string,
+  creatorDisplayName?: string
+): Promise<Community> => {
+  console.log('🚀 Creating community with icon:', {
+    communityData: { ...communityData, iconFile: iconFile ? iconFile.name : 'none' },
+    creatorId
+  });
+
+  try {
+    let iconUrl: string | null = null;
+
+    // Step 1: Create community first to get the ID
+    const community = await createCommunity(
+      communityData,
+      creatorId,
+      creatorEmail,
+      creatorDisplayName
+    );
+
+    // Step 2: Upload icon if provided
+    if (iconFile) {
+      console.log('📤 [ICON] Uploading community icon for community:', community.id);
+
+      try {
+        const uploadResult = await uploadCommunityIcon(
+          community.id,
+          iconFile,
+          onProgress
+        );
+
+        iconUrl = uploadResult.downloadURL;
+        console.log('✅ [ICON] Icon uploaded successfully:', iconUrl);
+
+        // Step 3: Update community with icon URL
+        const communityRef = doc(db, 'communities', community.id);
+        await updateDoc(communityRef, {
+          iconUrl: iconUrl
+        });
+
+        console.log('✅ [ICON] Community updated with icon URL');
+
+        // Return updated community object
+        return {
+          ...community,
+          iconUrl: iconUrl
+        };
+
+      } catch (iconError) {
+        console.error('❌ [ICON] Icon upload failed:', iconError);
+        // Don't fail the entire operation - community was created successfully
+        console.warn('⚠️ [ICON] Community created without icon due to upload failure');
+        throw new Error(`Community created but icon upload failed: ${iconError instanceof Error ? iconError.message : 'Unknown error'}`);
+      }
+    }
+
+    return community;
+
+  } catch (error: any) {
+    console.error('❌ Community creation with icon failed:', error);
+    throw new Error(`Failed to create community: ${error.message}`);
   }
 };
 

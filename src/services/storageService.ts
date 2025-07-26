@@ -223,7 +223,95 @@ export const uploadUserAvatar = async (
 };
 
 /**
- * Uploads community banner or icon
+ * Uploads community icon with specific validation and path structure
+ */
+export const uploadCommunityIcon = async (
+  communityId: string,
+  file: File,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<UploadResult> => {
+  if (!auth.currentUser) {
+    throw new Error('User must be authenticated to upload community icon');
+  }
+
+  // Validate that it's an image
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Community icon must be an image file');
+  }
+
+  // Validate file type - only allow specific image formats for icons
+  const allowedIconTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml'];
+  if (!allowedIconTypes.includes(file.type)) {
+    throw new Error('Community icon must be PNG, JPG, JPEG, or SVG format');
+  }
+
+  // Validate file size - 2MB limit for icons
+  const maxSize = 2 * 1024 * 1024; // 2MB
+  if (file.size > maxSize) {
+    throw new Error(`Icon file size must be less than 2MB. Current size: ${(file.size / (1024 * 1024)).toFixed(2)}MB`);
+  }
+
+  try {
+    // Get file extension
+    const extension = file.name.split('.').pop()?.toLowerCase() || 'png';
+
+    // Create specific path for community icon
+    const iconPath = `communities/${communityId}/icon.${extension}`;
+
+    // Create storage reference
+    const storageRef = ref(storage, iconPath);
+
+    // Upload with progress tracking
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    return new Promise((resolve, reject) => {
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          // Progress tracking
+          const progress: UploadProgress = {
+            bytesTransferred: snapshot.bytesTransferred,
+            totalBytes: snapshot.totalBytes,
+            percentage: Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+          };
+
+          console.log(`📤 [STORAGE] Icon upload progress: ${progress.percentage}%`);
+          onProgress?.(progress);
+        },
+        (error) => {
+          console.error('❌ [STORAGE] Icon upload failed:', error);
+          reject(new Error(`Failed to upload community icon: ${error.message}`));
+        },
+        async () => {
+          try {
+            // Upload completed successfully
+            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
+            const result: UploadResult = {
+              downloadURL,
+              fullPath: uploadTask.snapshot.ref.fullPath,
+              name: file.name,
+              size: file.size,
+              contentType: file.type
+            };
+
+            console.log('✅ [STORAGE] Community icon uploaded successfully:', result);
+            resolve(result);
+          } catch (urlError) {
+            console.error('❌ [STORAGE] Failed to get download URL:', urlError);
+            reject(new Error('Failed to get download URL for uploaded icon'));
+          }
+        }
+      );
+    });
+  } catch (error) {
+    console.error('❌ [STORAGE] Community icon upload error:', error);
+    throw new Error(error instanceof Error ? error.message : 'Failed to upload community icon');
+  }
+};
+
+/**
+ * Uploads community banner or icon (legacy function - use uploadCommunityIcon for icons)
  */
 export const uploadCommunityImage = async (
   communityId: string,
@@ -231,6 +319,11 @@ export const uploadCommunityImage = async (
   type: 'banner' | 'icon',
   onProgress?: (progress: UploadProgress) => void
 ): Promise<UploadResult> => {
+  // For icons, use the specialized function
+  if (type === 'icon') {
+    return uploadCommunityIcon(communityId, file, onProgress);
+  }
+
   // Validate that it's an image
   if (!file.type.startsWith('image/')) {
     throw new Error('Community image must be an image file');

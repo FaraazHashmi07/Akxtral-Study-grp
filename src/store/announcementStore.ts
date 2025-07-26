@@ -16,7 +16,7 @@ import {
   Timestamp
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Announcement, AnnouncementReads, MessageReaction } from '../types';
+import { Announcement, MessageReaction } from '../types';
 import { useAuthStore } from './authStore';
 
 interface AnnouncementState {
