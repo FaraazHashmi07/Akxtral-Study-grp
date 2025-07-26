@@ -13,7 +13,7 @@ import { useAuthStore } from '../../store/authStore';
 import { useUIStore } from '../../store/uiStore';
 
 export const UserProfileDropdown: React.FC = () => {
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, refreshUserProfile } = useAuthStore();
   const { theme, setTheme, openModal } = useUIStore();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -34,6 +34,13 @@ export const UserProfileDropdown: React.FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isOpen]);
+
+  // Refresh user profile when dropdown opens to ensure latest data
+  useEffect(() => {
+    if (isOpen && user) {
+      refreshUserProfile();
+    }
+  }, [isOpen, user, refreshUserProfile]);
 
   // Close dropdown on escape key
   useEffect(() => {

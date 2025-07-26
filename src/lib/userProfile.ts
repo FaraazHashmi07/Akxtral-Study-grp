@@ -65,19 +65,7 @@ export const deleteUserAvatar = async (uid: string, photoURL: string): Promise<v
   }
 };
 
-// Update user profile
-export const updateUserProfile = async (uid: string, updates: Partial<User>): Promise<void> => {
-  try {
-    const userRef = doc(db, 'users', uid);
-    await updateDoc(userRef, {
-      ...updates,
-      lastLoginAt: serverTimestamp()
-    });
-  } catch (error) {
-    console.error('Error updating user profile:', error);
-    throw error;
-  }
-};
+
 
 // Get user profile by UID
 export const getUserProfileById = async (uid: string): Promise<User | null> => {
@@ -306,6 +294,42 @@ export const getCommunityMembers = async (communityId: string): Promise<Array<Us
   }
 };
 
+// Update user profile in Firestore
+export const updateUserProfile = async (uid: string, updates: Partial<User>): Promise<void> => {
+  try {
+    console.log('🔄 [PROFILE] Updating user profile in Firestore:', uid, updates);
+
+    const userRef = doc(db, 'users', uid);
+
+    // Prepare the update data
+    const updateData = {
+      ...updates,
+      updatedAt: serverTimestamp()
+    };
+
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+
+    await updateDoc(userRef, updateData);
+    console.log('✅ [PROFILE] User profile updated successfully in Firestore');
+  } catch (error: any) {
+    console.error('❌ [PROFILE] Error updating user profile:', error);
+
+    // Handle specific Firestore errors
+    if (error.code === 'permission-denied') {
+      throw new Error('Permission denied: You can only update your own profile');
+    } else if (error.code === 'not-found') {
+      throw new Error('User profile not found');
+    } else {
+      throw new Error(`Failed to update profile: ${error.message || 'Unknown error'}`);
+    }
+  }
+};
+
 // Delete user account and all related data comprehensively
 export const deleteUserAccount = async (uid: string): Promise<void> => {
   try {
@@ -444,10 +468,24 @@ export const deleteUserAccount = async (uid: string): Promise<void> => {
     // 10. Delete Firebase Auth user (this must be last)
     console.log('🔐 [DELETE] Step 10: Deleting Firebase Auth user...');
     if (auth.currentUser && auth.currentUser.uid === uid) {
-      await deleteUser(auth.currentUser);
+      try {
+        await deleteUser(auth.currentUser);
+        console.log('✅ [DELETE] Firebase Auth user deleted successfully');
+      } catch (authError: any) {
+        console.error('❌ [DELETE] Firebase Auth deletion failed:', authError);
+
+        // Handle specific Firebase Auth errors
+        if (authError.code === 'auth/requires-recent-login') {
+          throw new Error('For security reasons, please log out and log back in before deleting your account.');
+        } else if (authError.code === 'auth/user-token-expired') {
+          throw new Error('Your session has expired. Please log out and log back in before deleting your account.');
+        } else {
+          throw new Error(`Authentication error: ${authError.message || 'Cannot delete user account'}`);
+        }
+      }
     } else {
       console.warn('⚠️ [DELETE] Current user mismatch or not authenticated');
-      throw new Error('Authentication error: Cannot delete user account');
+      throw new Error('Authentication error: You must be logged in to delete your account');
     }
 
     console.log('✅ [DELETE] Account deletion completed successfully');

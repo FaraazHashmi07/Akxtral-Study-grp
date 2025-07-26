@@ -79,9 +79,13 @@ service cloud.firestore {
     
     // User profiles
     match /users/{uid} {
-      allow read: if isAuthenticated() && (isOwner(uid) || isSuperAdmin());
+      // Allow any authenticated user to read user profiles (for displaying names/avatars)
+      allow read: if isAuthenticated();
+      // Allow users to update their own profile
       allow write: if isAuthenticated() && isOwner(uid);
+      // Allow users to create their own profile
       allow create: if isAuthenticated() && isOwner(uid);
+      // Allow users to delete their own profile or super admin
       allow delete: if isAuthenticated() && (isOwner(uid) || isSuperAdmin());
     }
     

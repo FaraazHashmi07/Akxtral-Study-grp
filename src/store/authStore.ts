@@ -21,6 +21,7 @@ interface AuthStore extends AuthState, SuperAdminState {
   signInWithGoogleProvider: () => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
+  refreshUserProfile: () => Promise<void>;
 
   // State management
   setUser: (user: User | null) => void;
@@ -290,19 +291,67 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         throw new Error('No user logged in');
       }
 
-      // TODO: Implement Firestore user profile update
-      // For now, just update local state
+      console.log('🔄 [PROFILE] Updating user profile in Firestore...', updates);
+
+      // Import the updateUserProfile function dynamically to avoid circular imports
+      const { updateUserProfile } = await import('../lib/userProfile');
+
+      // Update Firestore first
+      await updateUserProfile(user.uid, updates);
+
+      // Update Firebase Auth profile if displayName or photoURL changed
+      if (updates.displayName || updates.photoURL !== undefined) {
+        const { updateProfile: updateFirebaseProfile } = await import('firebase/auth');
+        const { auth } = await import('../lib/firebase');
+
+        if (auth.currentUser) {
+          const authUpdates: any = {};
+          if (updates.displayName) authUpdates.displayName = updates.displayName;
+          if (updates.photoURL !== undefined) authUpdates.photoURL = updates.photoURL;
+
+          await updateFirebaseProfile(auth.currentUser, authUpdates);
+          console.log('✅ [PROFILE] Firebase Auth profile updated');
+        }
+      }
+
+      // Update local state
       const updatedUser = { ...user, ...updates };
       set({ user: updatedUser, loading: false });
 
-      console.log('✅ Profile updated successfully');
+      console.log('✅ [PROFILE] Profile updated successfully in Firestore and local state');
     } catch (error: any) {
-      console.error('❌ Profile update failed:', error);
+      console.error('❌ [PROFILE] Profile update failed:', error);
       set({
         error: error instanceof Error ? error.message : 'Profile update failed',
         loading: false
       });
       throw error;
+    }
+  },
+
+  // Refresh user profile from Firestore
+  refreshUserProfile: async () => {
+    try {
+      const { user } = get();
+      if (!user) return;
+
+      console.log('🔄 [PROFILE] Refreshing user profile from Firestore...');
+
+      // Import functions dynamically to avoid circular imports
+      const { getUserProfile } = await import('../lib/auth');
+      const { getAllCommunityRoles } = await import('../lib/userProfile');
+
+      const firestoreProfile = await getUserProfile(user.uid);
+      if (firestoreProfile) {
+        // Load community roles for the user
+        const communityRoles = await getAllCommunityRoles(user.uid);
+        const updatedProfile = { ...firestoreProfile, communityRoles };
+
+        set({ user: updatedProfile });
+        console.log('✅ [PROFILE] User profile refreshed from Firestore');
+      }
+    } catch (error) {
+      console.error('❌ [PROFILE] Failed to refresh user profile:', error);
     }
   },
 

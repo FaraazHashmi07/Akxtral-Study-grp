@@ -7,7 +7,7 @@ import { useUIStore } from '../../store/uiStore';
 import { uploadUserAvatar, deleteUserAvatar, deleteUserAccount } from '../../lib/userProfile';
 
 export const UserSettingsModal: React.FC = () => {
-  const { user, updateProfile } = useAuthStore();
+  const { user, updateProfile, refreshUserProfile } = useAuthStore();
   const { theme, setTheme, closeModal, showToast } = useUIStore();
 
   const [activeTab, setActiveTab] = useState('profile');
@@ -205,6 +205,9 @@ export const UserSettingsModal: React.FC = () => {
         displayName: formData.displayName,
         photoURL
       });
+
+      // Refresh user profile to ensure UI is updated
+      await refreshUserProfile();
 
       showToast({
         type: 'success',
