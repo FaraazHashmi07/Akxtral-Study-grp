@@ -28,10 +28,16 @@ function App() {
 
   // Load user's communities when authenticated (but not for Super Admin)
   useEffect(() => {
-    if (user && !isSuperAdmin) {
+    // CRITICAL FIX: Don't load communities during auth loading (prevents signout issues)
+    if (user && !isSuperAdmin && !loading) {
+      console.log('🔄 [APP] Loading joined communities for authenticated user:', user.uid);
       loadJoinedCommunities();
+    } else if (!user) {
+      console.log('👤 [APP] User signed out, skipping community load');
+    } else if (loading) {
+      console.log('⏳ [APP] Auth loading, skipping community load to prevent race conditions');
     }
-  }, [user, isSuperAdmin, loadJoinedCommunities]);
+  }, [user, isSuperAdmin, loading, loadJoinedCommunities]);
 
   // Show loading spinner while checking authentication
   if (loading) {

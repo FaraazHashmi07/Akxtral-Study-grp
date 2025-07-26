@@ -262,6 +262,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         if (chatStore.unsubscribeAll) {
           chatStore.unsubscribeAll();
         }
+
+        // CRITICAL FIX: Clean up community store immediately to prevent race conditions
+        const { useCommunityStore } = await import('./communityStore');
+        const communityStore = useCommunityStore.getState();
+        if (communityStore.reset) {
+          communityStore.reset();
+        }
       } catch (cleanupError) {
         console.warn('⚠️ [AUTH] Error during listener cleanup:', cleanupError);
         // Don't fail sign out if cleanup fails
@@ -361,32 +368,45 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
     // CRITICAL FIX: Clear all cached data when user changes to prevent data leakage
     if (!user) {
-      console.log('🧹 [AUTH] User logged out, clearing all cached data...');
+      console.log('🧹 [AUTH] User logged out, clearing all cached data synchronously...');
 
-      // Clear announcement store data
-      import('./announcementStore').then(({ useAnnouncementStore }) => {
-        const announcementStore = useAnnouncementStore.getState();
-        announcementStore.unsubscribeAll();
-      });
+      // Clear stores synchronously to prevent race conditions during signout
+      try {
+        // Clear announcement store data
+        import('./announcementStore').then(({ useAnnouncementStore }) => {
+          const announcementStore = useAnnouncementStore.getState();
+          if (announcementStore.unsubscribeAll) {
+            announcementStore.unsubscribeAll();
+          }
+        });
 
-      // Clear community store data
-      import('./communityStore').then(({ useCommunityStore }) => {
-        const communityStore = useCommunityStore.getState();
-        communityStore.reset();
-      });
+        // Clear community store data
+        import('./communityStore').then(({ useCommunityStore }) => {
+          const communityStore = useCommunityStore.getState();
+          if (communityStore.reset) {
+            communityStore.reset();
+          }
+        });
 
-      // Clear chat store data
-      import('./chatStore').then(({ useChatStore }) => {
-        const chatStore = useChatStore.getState();
-        chatStore.unsubscribeAll();
-      });
+        // Clear chat store data
+        import('./chatStore').then(({ useChatStore }) => {
+          const chatStore = useChatStore.getState();
+          if (chatStore.unsubscribeAll) {
+            chatStore.unsubscribeAll();
+          }
+        });
+      } catch (cleanupError) {
+        console.warn('⚠️ [AUTH] Error during store cleanup:', cleanupError);
+      }
     } else {
       console.log('🔔 [AUTH] User logged in:', user.uid);
 
       // Clear any stale data from previous user
       import('./announcementStore').then(({ useAnnouncementStore }) => {
         const announcementStore = useAnnouncementStore.getState();
-        announcementStore.unsubscribeAll();
+        if (announcementStore.unsubscribeAll) {
+          announcementStore.unsubscribeAll();
+        }
       });
     }
 

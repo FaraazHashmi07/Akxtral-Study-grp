@@ -95,7 +95,8 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
   // Load communities the user has joined with caching
   loadJoinedCommunities: async (forceRefresh = false) => {
     const { lastLoadedUserId, lastLoadTime, loading } = get();
-    const user = useAuthStore.getState().user;
+    const authState = useAuthStore.getState();
+    const user = authState.user;
 
     if (!user) {
       console.log('👤 [STORE] No user found, clearing joined communities');
@@ -103,8 +104,15 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
         joinedCommunities: [],
         loading: false,
         lastLoadedUserId: null,
-        lastLoadTime: 0
+        lastLoadTime: 0,
+        error: null // Clear any previous errors
       });
+      return;
+    }
+
+    // CRITICAL FIX: Prevent loading during signout process
+    if (authState.loading) {
+      console.log('⏳ [STORE] Auth is loading (possibly signing out), skipping community load');
       return;
     }
 
