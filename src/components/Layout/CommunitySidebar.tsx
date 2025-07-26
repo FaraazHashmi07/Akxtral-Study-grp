@@ -28,7 +28,7 @@ export const CommunitySidebar: React.FC = () => {
   // Note: New chat system is community-based, not channel-based
   const { activeSection, setActiveSection, openModal } = useUIStore();
   const { user } = useAuthStore();
-  const { getUnreadCount } = useAnnouncementStore();
+  const { getUnreadCount, subscribeToReadStatus, unsubscribeFromReadStatus } = useAnnouncementStore();
 
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
@@ -58,6 +58,19 @@ export const CommunitySidebar: React.FC = () => {
       setPendingRequestsCount(0);
     }
   }, [isAdmin, activeCommunity?.id]);
+
+  // Subscribe to read status updates for real-time unread count updates
+  useEffect(() => {
+    if (activeCommunity?.id && user) {
+      console.log('🔌 [SIDEBAR] Subscribing to read status for community:', activeCommunity.id);
+      subscribeToReadStatus(activeCommunity.id);
+
+      return () => {
+        console.log('🔌 [SIDEBAR] Unsubscribing from read status for community:', activeCommunity.id);
+        unsubscribeFromReadStatus(activeCommunity.id);
+      };
+    }
+  }, [activeCommunity?.id, user, subscribeToReadStatus, unsubscribeFromReadStatus]);
 
   if (!activeCommunity) return null;
 
