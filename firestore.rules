@@ -363,5 +363,30 @@ service cloud.firestore {
         isCommunityAdmin(readId.split('_')[1]);
     }
 
+    // ===== NOTIFICATIONS =====
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Community admins can create notifications for join request approvals/rejections
+      allow create: if isAuthenticated() && (
+        // Allow users to create notifications for themselves
+        request.resource.data.userId == request.auth.uid ||
+        // Allow community admins to create notifications for join request responses
+        (request.resource.data.type in ['join_request_approved', 'join_request_rejected'] &&
+         'communityId' in request.resource.data &&
+         isCommunityAdmin(request.resource.data.communityId))
+      );
+      
+      // Users can update their own notifications (mark as read)
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Users can delete their own notifications
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Super admins can manage all notifications
+      allow read, write: if isSuperAdmin();
+    }
+
   }
 }

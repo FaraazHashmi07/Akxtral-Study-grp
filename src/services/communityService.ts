@@ -1120,7 +1120,10 @@ const createUserNotification = async (
   data?: any
 ): Promise<void> => {
   try {
-    await addDoc(notificationsRef, {
+    // Extract communityId from data for top-level field (required by Firestore rules)
+    const communityId = data?.communityId;
+    
+    const notificationDoc = {
       userId,
       type,
       title,
@@ -1128,7 +1131,14 @@ const createUserNotification = async (
       data: data || {},
       read: false,
       createdAt: serverTimestamp()
-    });
+    };
+    
+    // Add communityId as top-level field if available (required for admin permission check)
+    if (communityId) {
+      notificationDoc.communityId = communityId;
+    }
+    
+    await addDoc(notificationsRef, notificationDoc);
     console.log('✅ [NOTIFICATION] Created notification for user:', userId, type);
   } catch (error) {
     console.error('❌ [NOTIFICATION] Failed to create notification:', error);
@@ -1137,6 +1147,76 @@ const createUserNotification = async (
 };
 
 
+
+// Update community details (admin only)
+export const updateCommunity = async (
+  communityId: string,
+  updates: Partial<Community>,
+  adminUserId: string
+): Promise<void> => {
+  try {
+    console.log('🔄 [SERVICE] Updating community:', communityId, 'Updates:', updates);
+
+    // Validate input parameters
+    if (!communityId || typeof communityId !== 'string' || communityId.trim() === '') {
+      throw new Error('Invalid community ID provided');
+    }
+
+    if (!adminUserId || typeof adminUserId !== 'string' || adminUserId.trim() === '') {
+      throw new Error('Invalid admin user ID provided');
+    }
+
+    // Get the community document for admin verification
+    const communityDoc = await getDoc(doc(communitiesRef, communityId));
+    if (!communityDoc.exists()) {
+      throw new Error('Community not found');
+    }
+
+    const communityData = communityDoc.data();
+
+    // Check if user is the community creator
+    const isCreator = communityData.createdBy === adminUserId;
+
+    // Check if user has admin role in the community
+    let hasAdminRole = false;
+    try {
+      const roleDoc = await getDoc(doc(db, 'communities', communityId, 'roles', adminUserId));
+      hasAdminRole = roleDoc.exists() && roleDoc.data()?.role === 'community_admin';
+    } catch (roleError) {
+      console.warn('⚠️ [SERVICE] Could not check admin role:', roleError);
+    }
+
+    const isAdmin = isCreator || hasAdminRole;
+
+    if (!isAdmin) {
+      throw new Error('Only community administrators can update community settings');
+    }
+
+    console.log('✅ [SERVICE] Admin verification passed, proceeding with update');
+
+    // Prepare update data with timestamp
+    const updateData = {
+      ...updates,
+      lastActivity: serverTimestamp()
+    };
+
+    // Remove any undefined values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+
+    // Update the community document
+    await updateDoc(doc(communitiesRef, communityId), updateData);
+
+    console.log('✅ [SERVICE] Community updated successfully');
+
+  } catch (error) {
+    console.error('❌ [SERVICE] Failed to update community:', error);
+    throw error;
+  }
+};
 
 // Delete a community and all associated data
 export const deleteCommunity = async (communityId: string, adminUserId: string): Promise<void> => {
@@ -1231,6 +1311,28 @@ export const deleteCommunity = async (communityId: string, adminUserId: string):
   } catch (error) {
     console.error('❌ [SERVICE] Failed to delete community:', error);
     throw error;
+  }
+};
+
+// Check if user has a pending join request for a specific community
+export const checkUserPendingJoinRequest = async (communityId: string, userId: string): Promise<boolean> => {
+  try {
+    console.log('🔍 [SERVICE] Checking pending join request for user:', { communityId, userId });
+
+    const existingRequestQuery = query(
+      joinRequestsRef,
+      where('userId', '==', userId),
+      where('communityId', '==', communityId),
+      where('status', '==', 'pending')
+    );
+    const existingRequest = await getDocs(existingRequestQuery);
+
+    const hasPendingRequest = !existingRequest.empty;
+    console.log('✅ [SERVICE] Pending request check result:', hasPendingRequest);
+    return hasPendingRequest;
+  } catch (error) {
+    console.error('❌ [SERVICE] Error checking pending join request:', error);
+    return false; // Return false on error to allow join attempt
   }
 };
 

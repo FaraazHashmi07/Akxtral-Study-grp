@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Menu, Bell, Search } from 'lucide-react';
+import { Menu, Search } from 'lucide-react';
 import { useUIStore } from '../../store/uiStore';
 import { useCommunityStore } from '../../store/communityStore';
 import { useAuthStore } from '../../store/authStore';
@@ -23,9 +23,7 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
     activeSection, 
     activeCommunityId,
     toggleSidebar,
-    toggleNotificationPanel,
-    setCommandPaletteOpen,
-    unreadNotificationCount
+    setCommandPaletteOpen
   } = useUIStore();
   
   const { activeCommunity } = useCommunityStore();
@@ -150,23 +148,7 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
             <Search size={20} />
           </motion.button>
 
-          {/* Notifications button */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleNotificationPanel}
-            className="relative p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            title="Notifications"
-          >
-            <Bell size={20} />
-            {unreadNotificationCount > 0 && (
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                <span className="text-xs text-white font-bold">
-                  {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
-                </span>
-              </div>
-            )}
-          </motion.button>
+
 
           {/* User Profile Dropdown */}
           <UserProfileDropdown />

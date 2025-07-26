@@ -15,8 +15,9 @@ import {
   UserCheck,
   Trash2
 } from 'lucide-react';
+import { onSnapshot, doc } from 'firebase/firestore';
+import { db } from '../../lib/firebase';
 import { useCommunityStore } from '../../store/communityStore';
-import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 import { useAnnouncementStore } from '../../store/announcementStore';
@@ -38,22 +39,34 @@ export const CommunitySidebar: React.FC = () => {
     user.uid === activeCommunity.createdBy
   );
 
-  // Load pending join requests count for admins (removed auto-refresh to prevent infinite polling)
+  // Subscribe to real-time pending join requests count for admins
   useEffect(() => {
     if (isAdmin && activeCommunity) {
-      const loadPendingCount = async () => {
-        try {
-          const count = await getPendingJoinRequestsCount(activeCommunity.id);
-          setPendingRequestsCount(count);
-        } catch (error) {
-          console.error('❌ [SIDEBAR] Failed to load pending requests count:', error);
-          // Set count to 0 on error but don't hide the admin functionality
+      console.log('🔌 [SIDEBAR] Subscribing to pending requests count for community:', activeCommunity.id);
+      
+      // Subscribe to community document changes to get real-time count updates
+      const unsubscribe = onSnapshot(
+        doc(db, 'communities', activeCommunity.id),
+        (doc) => {
+          if (doc.exists()) {
+            const data = doc.data();
+            const count = data.pendingRequestsCount || 0;
+            console.log('📊 [SIDEBAR] Updated pending requests count:', count);
+            setPendingRequestsCount(count);
+          } else {
+            setPendingRequestsCount(0);
+          }
+        },
+        (error) => {
+          console.error('❌ [SIDEBAR] Error subscribing to pending requests count:', error);
           setPendingRequestsCount(0);
         }
-      };
+      );
 
-      loadPendingCount();
-      // Removed setInterval to prevent continuous polling and auto-refresh issues
+      return () => {
+        console.log('🔌 [SIDEBAR] Unsubscribing from pending requests count');
+        unsubscribe();
+      };
     } else {
       setPendingRequestsCount(0);
     }
@@ -224,14 +237,7 @@ export const CommunitySidebar: React.FC = () => {
                 }`}
                 title={section.description}
               >
-                <div className="relative">
-                  <Icon size={18} />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </span>
-                  )}
-                </div>
+                <Icon size={18} />
                 <span className="font-medium">{section.name}</span>
                 {unreadCount > 0 && (
                   <span className="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">

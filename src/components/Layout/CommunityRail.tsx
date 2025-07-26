@@ -359,34 +359,7 @@ export const CommunityRail: React.FC = () => {
         </div>
       </div>
 
-      {/* Hover Tooltip */}
-      <AnimatePresence>
-        {hoveredCommunity && (
-          <motion.div
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -10 }}
-            className="fixed left-20 bg-black text-white px-3 py-2 rounded-lg text-sm font-medium shadow-lg z-50 pointer-events-none"
-            style={{
-              top: '50%',
-              transform: 'translateY(-50%)',
-              backgroundColor: '#18191C',
-              border: '1px solid #4F545C'
-            }}
-          >
-            <div className="flex items-center space-x-2">
-              <span>{hoveredCommunity}</span>
-              {uniqueCommunities.find(c => c.name === hoveredCommunity) &&
-               isAdmin(uniqueCommunities.find(c => c.name === hoveredCommunity)!) && (
-                <div className="flex items-center space-x-1 text-yellow-400">
-                  <Crown size={12} />
-                  <span className="text-xs">Admin</span>
-                </div>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
     </div>
   );
 };

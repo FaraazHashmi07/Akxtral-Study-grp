@@ -227,8 +227,13 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
   updateCommunity: async (id, updates) => {
     set({ loading: true, error: null });
     try {
-      // TODO: Implement Firestore community update
-      // await updateCommunityInFirestore(id, updates);
+      const user = useAuthStore.getState().user;
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Call the community service to update in Firestore
+      await communityService.updateCommunity(id, updates, user.uid);
       
       const { communities, joinedCommunities, activeCommunity } = get();
       
@@ -246,6 +251,7 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
         error: error instanceof Error ? error.message : 'Failed to update community',
         loading: false 
       });
+      throw error;
     }
   },
 

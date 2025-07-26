@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, 
-  Bell, 
   Moon, 
   Sun, 
   Command,
@@ -21,15 +20,13 @@ export const Navbar: React.FC = () => {
     isDarkMode, 
     toggleDarkMode, 
     toggleCommandPalette, 
-    toggleNotifications,
     toggleSignOutConfirm,
-    showSignOutConfirm,
-    notifications 
+    showSignOutConfirm
   } = useAppStore();
   
   const [showUserMenu, setShowUserMenu] = useState(false);
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
+
 
   const handleSignOut = () => {
     setShowUserMenu(false);
@@ -74,24 +71,7 @@ export const Navbar: React.FC = () => {
               <span>⌘K</span>
             </motion.button>
 
-            {/* Notifications */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={toggleNotifications}
-              className="relative p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-            >
-              <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
-                <motion.span
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center"
-                >
-                  {unreadCount}
-                </motion.span>
-              )}
-            </motion.button>
+
 
             {/* Theme Toggle */}
             <motion.button

@@ -1,11 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Search, Filter, Users, Tag, Eye, Lock, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, Filter, Users, Tag, Eye, Lock, RefreshCw, X, Info } from 'lucide-react';
 import { BaseModal } from '../UI/ModalContainer';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 import { Community, CommunityFilter } from '../../types';
+import { checkUserPendingJoinRequest } from '../../services/communityService';
+import CommunityDetailsModal from './CommunityDetailsModal';
 
 export const DiscoverCommunitiesModal: React.FC = () => {
   const { discoverCommunities, joinCommunity, joinedCommunities, isUserMemberOfCommunity, checkMembershipDirect, loadJoinedCommunities } = useCommunityStore();
@@ -17,6 +19,8 @@ export const DiscoverCommunitiesModal: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [joiningCommunities, setJoiningCommunities] = useState<Set<string>>(new Set());
+  const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set());
+  const [selectedCommunity, setSelectedCommunity] = useState<Community | null>(null);
   const [filters, setFilters] = useState<CommunityFilter>({
     category: undefined,
     visibility: 'public',
@@ -74,6 +78,30 @@ export const DiscoverCommunitiesModal: React.FC = () => {
     } catch (error) {
       console.error('❌ [MODAL] Failed to load user memberships:', error);
     }
+  };
+
+  const checkPendingRequests = async (communityList: Community[]) => {
+    if (!user) return;
+    
+    console.log('🔍 [MODAL] Checking pending requests for communities...');
+    const pendingSet = new Set<string>();
+    
+    // Check each community for pending requests
+    await Promise.all(
+      communityList.map(async (community) => {
+        try {
+          const hasPending = await checkUserPendingJoinRequest(community.id, user.uid);
+          if (hasPending) {
+            pendingSet.add(community.id);
+          }
+        } catch (error) {
+          console.warn('Failed to check pending request for community:', community.id, error);
+        }
+      })
+    );
+    
+    setPendingRequests(pendingSet);
+    console.log('✅ [MODAL] Pending requests check completed:', pendingSet.size);
   };
 
   const loadCommunities = async () => {
@@ -143,6 +171,9 @@ export const DiscoverCommunitiesModal: React.FC = () => {
       });
 
       setCommunities(filteredCommunities);
+      
+      // Check for pending requests
+      await checkPendingRequests(filteredCommunities);
 
       // Show success message if communities found
       if (filteredCommunities.length > 0) {
@@ -171,6 +202,17 @@ export const DiscoverCommunitiesModal: React.FC = () => {
       return;
     }
 
+    // Check if user already has a pending request
+    if (pendingRequests.has(community.id)) {
+      console.log('⚠️ [MODAL] User already has a pending request for:', community.name);
+      showToast({
+        type: 'warning',
+        title: 'Request Already Pending',
+        message: `You already have a pending request to join ${community.name}`
+      });
+      return;
+    }
+
     // Double-check membership with direct Firestore query for accuracy
     const isAlreadyMember = await checkMembershipDirect(community.id);
     if (isAlreadyMember) {
@@ -189,6 +231,11 @@ export const DiscoverCommunitiesModal: React.FC = () => {
     try {
       await joinCommunity(community.id, undefined); // message is undefined for now
       console.log('✅ [MODAL] Successfully joined community:', community.name);
+
+      // If approval is required, add to pending requests
+      if (community.requiresApproval) {
+        setPendingRequests(prev => new Set([...prev, community.id]));
+      }
 
       showToast({
         type: 'success',
@@ -366,14 +413,30 @@ export const DiscoverCommunitiesModal: React.FC = () => {
                   key={community.id}
                   community={community}
                   onJoin={() => handleJoinCommunity(community)}
+                  onView={() => setSelectedCommunity(community)}
                   getCommunityColor={getCommunityColor}
                   isJoining={joiningCommunities.has(community.id)}
+                  hasPendingRequest={pendingRequests.has(community.id)}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+      
+      {/* Community Details Modal */}
+      {selectedCommunity && (
+        <CommunityDetailsModal
+          community={selectedCommunity}
+          onClose={() => setSelectedCommunity(null)}
+          onJoin={() => {
+            handleJoinCommunity(selectedCommunity);
+            setSelectedCommunity(null);
+          }}
+          isJoining={joiningCommunities.has(selectedCommunity.id)}
+          hasPendingRequest={pendingRequests.has(selectedCommunity.id)}
+        />
+      )}
     </BaseModal>
   );
 };
@@ -381,11 +444,13 @@ export const DiscoverCommunitiesModal: React.FC = () => {
 interface CommunityCardProps {
   community: Community;
   onJoin: () => void;
+  onView: () => void;
   getCommunityColor: (category: string) => string;
   isJoining?: boolean;
+  hasPendingRequest?: boolean;
 }
 
-const CommunityCard: React.FC<CommunityCardProps> = ({ community, onJoin, getCommunityColor, isJoining = false }) => {
+const CommunityCard: React.FC<CommunityCardProps> = ({ community, onJoin, onView, getCommunityColor, isJoining = false, hasPendingRequest = false }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -449,27 +514,39 @@ const CommunityCard: React.FC<CommunityCardProps> = ({ community, onJoin, getCom
           )}
         </div>
 
-        <button
-          onClick={onJoin}
-          disabled={isJoining}
-          className={`ml-4 px-4 py-2 text-white text-sm rounded-lg transition-colors flex items-center space-x-2 ${
-            isJoining
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          {isJoining && (
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-          )}
-          <span>
-            {isJoining
-              ? 'Joining...'
-              : community.requiresApproval
-                ? 'Request to Join'
-                : 'Join'
-            }
-          </span>
-        </button>
+        <div className="ml-4 flex space-x-2">
+          <button
+            onClick={onView}
+            className="px-3 py-2 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 text-sm rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center space-x-1"
+          >
+            <Info size={16} />
+            <span>View</span>
+          </button>
+          
+          <button
+            onClick={onJoin}
+            disabled={isJoining || hasPendingRequest}
+            className={`px-4 py-2 text-white text-sm rounded-lg transition-colors flex items-center space-x-2 ${
+              isJoining || hasPendingRequest
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {isJoining && (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            )}
+            <span>
+              {isJoining
+                ? 'Joining...'
+                : hasPendingRequest
+                  ? 'Request Pending'
+                  : community.requiresApproval
+                    ? 'Request to Join'
+                    : 'Join'
+              }
+            </span>
+          </button>
+        </div>
       </div>
     </motion.div>
   );
