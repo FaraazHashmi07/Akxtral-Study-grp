@@ -28,6 +28,7 @@ export const CommunitySidebar: React.FC = () => {
   // Note: New chat system is community-based, not channel-based
   const { activeSection, setActiveSection, openModal } = useUIStore();
   const { user } = useAuthStore();
+  const { getUnreadCount } = useAnnouncementStore();
 
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
@@ -111,8 +112,8 @@ export const CommunitySidebar: React.FC = () => {
 
     // If clicking on announcements, immediately mark as read for instant badge removal
     if (sectionId === 'announcements' && activeCommunity?.id) {
-      const { markAnnouncementsAsRead } = useAnnouncementStore.getState();
-      markAnnouncementsAsRead(activeCommunity.id);
+      const { markAllAnnouncementsAsRead } = useAnnouncementStore.getState();
+      markAllAnnouncementsAsRead(activeCommunity.id);
     }
 
     // Note: New chat system doesn't need channel selection
@@ -191,7 +192,11 @@ export const CommunitySidebar: React.FC = () => {
           {sections.map((section) => {
             const Icon = section.icon;
             const isActive = activeSection === section.id;
-
+            
+            // Get unread count for announcements section
+            const unreadCount = section.id === 'announcements' && activeCommunity?.id 
+              ? getUnreadCount(activeCommunity.id) 
+              : 0;
 
             return (
               <motion.button
@@ -206,8 +211,20 @@ export const CommunitySidebar: React.FC = () => {
                 }`}
                 title={section.description}
               >
-                <Icon size={18} />
+                <div className="relative">
+                  <Icon size={18} />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </div>
                 <span className="font-medium">{section.name}</span>
+                {unreadCount > 0 && (
+                  <span className="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-1 min-w-[20px] text-center">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </motion.button>
             );
           })}
