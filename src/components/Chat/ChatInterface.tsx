@@ -67,9 +67,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ communityId }) => 
   const communityMessages = messages[communityId] || [];
   const communityPinnedMessages = pinnedMessages[communityId] || [];
 
-  // Detect dark mode
-  const isDarkMode = document.documentElement.classList.contains('dark');
-
   // Get user role in this community
   const members = communityMembers[communityId] || [];
   const userMember = members.find(member => member.uid === user?.uid);
@@ -412,7 +409,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ communityId }) => 
                       isOpen={showEmojiPicker}
                       onClose={() => setShowEmojiPicker(false)}
                       onEmojiSelect={handleEmojiSelect}
-                      isDarkMode={isDarkMode}
                     />
                   </div>
                 </div>

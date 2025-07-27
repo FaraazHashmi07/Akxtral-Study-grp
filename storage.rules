@@ -24,8 +24,39 @@ service firebase.storage {
         'application/pdf',
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'application/vnd.ms-powerpoint',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'application/zip',
+        'application/x-rar-compressed',
+        'application/rtf',
         'text/plain'
       ] && request.resource.size < 10 * 1024 * 1024; // 10MB limit
+    }
+
+    function isValidAvatarFile() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size < 2 * 1024 * 1024 && // 2MB limit
+             request.resource.contentType in ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    }
+
+    function isValidCommunityIconFile() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size < 2 * 1024 * 1024 && // 2MB limit
+             request.resource.contentType in ['image/jpeg', 'image/png', 'image/svg+xml', 'image/gif'];
+    }
+
+    function isCommunityMember() {
+      // Simplified: Allow all authenticated users for now
+      // TODO: Implement custom claims or use resource metadata
+      return request.auth != null;
+    }
+
+    function isCommunityAdmin() {
+      // Simplified: Allow all authenticated users for now
+      // TODO: Implement custom claims or use resource metadata
+      return request.auth != null;
     }
     
     // User avatars
@@ -33,36 +64,67 @@ service firebase.storage {
       allow read: if true; // Avatars are public
       allow write: if isAuthenticated() &&
                       isOwner(uid) &&
-                      isValidImageFile();
+                      isValidAvatarFile();
       allow delete: if isAuthenticated() &&
-                       isOwner(uid);
+                       (isOwner(uid) || isSuperAdmin());
+    }
+
+    // Community icon (single file per community)
+    match /communities/{communityId}/icon/{fileName} {
+      allow read: if true; // Community icons are public
+      allow write: if isAuthenticated() &&
+                      isCommunityAdmin() &&
+                      isValidCommunityIconFile();
+      allow delete: if isAuthenticated() &&
+                       (isCommunityAdmin() || isSuperAdmin());
     }
     
     // Community resources
     match /communities/{communityId}/resources/{resourceId}/{fileName} {
-      allow read: if isAuthenticated(); // Members can read community resources
+      allow read: if isAuthenticated() && isCommunityMember();
       allow write: if isAuthenticated() &&
+                      isCommunityMember() &&
                       (isValidImageFile() || isValidDocumentFile());
       allow delete: if isAuthenticated() &&
-                       (isOwner(resource.metadata.uploadedBy) || isSuperAdmin());
+                       (isOwner(resource.metadata.uploadedBy) || 
+                        isCommunityAdmin() || 
+                        isSuperAdmin());
     }
 
     // Community images (banners, logos, etc.)
     match /communities/{communityId}/images/{fileName} {
       allow read: if true; // Community images are public
-      allow write: if isAuthenticated() && isValidImageFile();
-      allow delete: if isAuthenticated() || isSuperAdmin(); // Any authenticated user can delete community images
+      allow write: if isAuthenticated() && 
+                      isCommunityAdmin() && 
+                      isValidImageFile();
+      allow delete: if isAuthenticated() && 
+                       (isCommunityAdmin() || isSuperAdmin());
     }
 
-    // Super Admin access to all resources (for deletion)
+    // Super Admin access to all resources (for deletion and management)
     match /resources/{communityId}/{allPaths=**} {
-      allow read, delete: if isSuperAdmin();
+      allow read, write, delete: if isSuperAdmin();
     }
 
-    // Temporary uploads (for processing)
+    // Temporary uploads (for processing) - auto-expire after 24 hours
     match /temp/{uid}/{fileName} {
-      allow read, write: if isAuthenticated() && isOwner(uid);
-      allow delete: if isAuthenticated() && isOwner(uid);
+      allow read, write: if isAuthenticated() && 
+                            isOwner(uid) && 
+                            (isValidImageFile() || isValidDocumentFile());
+      allow delete: if isAuthenticated() && 
+                       (isOwner(uid) || isSuperAdmin());
+    }
+
+    // Chat attachments (if implemented)
+    match /chat/{communityId}/attachments/{messageId}/{fileName} {
+      allow read: if isAuthenticated() && isCommunityMember();
+      allow write: if isAuthenticated() && 
+                      isCommunityMember() && 
+                      (isValidImageFile() || isValidDocumentFile());
+      allow delete: if isAuthenticated() && 
+                       (isOwner(resource.metadata.uploadedBy) || 
+                        isCommunityAdmin() || 
+                        isSuperAdmin());
     }
     
     // Default deny all other paths

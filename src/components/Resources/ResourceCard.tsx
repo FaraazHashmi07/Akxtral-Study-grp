@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Download, 
-  Eye, 
-  Heart, 
   MoreVertical, 
   File, 
   FileText, 
@@ -27,11 +25,11 @@ interface ResourceCardProps {
   communityId: string;
 }
 
-export const ResourceCard: React.FC<ResourceCardProps> = ({ 
+export const ResourceCard = forwardRef<HTMLDivElement, ResourceCardProps>(({ 
   resource, 
   viewMode, 
   communityId 
-}) => {
+}, ref) => {
   const { user } = useAuthStore();
   const { deleteResource, downloadResource } = useResourceStore();
   const { showToast } = useUIStore();
@@ -68,41 +66,25 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   // Handle download - actually download the file to user's system
   const handleDownload = async () => {
     try {
-      // Track download first
-      await downloadResource(resource.id);
-
-      // Try to download the file using fetch and blob for better compatibility
+      // Track download first (don't fail if this fails)
       try {
-        const response = await fetch(resource.url);
-        if (!response.ok) throw new Error('Network response was not ok');
-
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-
-        // Create a temporary anchor element to trigger download
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = resource.name;
-
-        // Append to body, click, and remove
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
-        // Clean up the blob URL
-        window.URL.revokeObjectURL(url);
-      } catch (fetchError) {
-        // Fallback to direct link method
-        console.warn('Fetch download failed, using fallback method:', fetchError);
-        const link = document.createElement('a');
-        link.href = resource.url;
-        link.download = resource.name;
-        link.target = '_blank';
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        await downloadResource(resource.id);
+      } catch (trackError) {
+        console.warn('Failed to track download:', trackError);
+        // Continue with download even if tracking fails
       }
+
+      // Use direct link method for Firebase Storage URLs to avoid CORS issues
+      const link = document.createElement('a');
+      link.href = resource.url;
+      link.download = resource.name;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
 
       showToast({
         type: 'success',
@@ -151,6 +133,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   if (viewMode === 'grid') {
     return (
       <motion.div
+        ref={ref}
         layout
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -232,35 +215,17 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
             )}
           </div>
 
-          {/* Stats */}
-          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-            <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-1">
-                <Download size={12} />
-                <span>{resource.downloads}</span>
-              </div>
-              <div className="flex items-center space-x-1">
-                <Heart size={12} />
-                <span>{resource.likes.length}</span>
-              </div>
-            </div>
-          </div>
+
         </div>
 
         {/* Actions */}
-        <div className="mt-4 flex space-x-2">
+        <div className="mt-4">
           <button
             onClick={handleDownload}
-            className="flex-1 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-1"
+            className="w-full px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center justify-center space-x-1"
           >
             <Download size={14} />
             <span>Download</span>
-          </button>
-          <button
-            onClick={() => window.open(resource.url, '_blank')}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <Eye size={14} />
           </button>
         </div>
       </motion.div>
@@ -270,6 +235,7 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
   // List view
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -322,48 +288,30 @@ export const ResourceCard: React.FC<ResourceCardProps> = ({
               ))}
             </div>
 
-            {/* Stats and Actions */}
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3 text-xs text-gray-500 dark:text-gray-400">
-                <div className="flex items-center space-x-1">
-                  <Download size={12} />
-                  <span>{resource.downloads}</span>
-                </div>
-                <div className="flex items-center space-x-1">
-                  <Heart size={12} />
-                  <span>{resource.likes.length}</span>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
+            {/* Actions */}
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleDownload}
+                className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+              >
+                Download
+              </button>
+              {canDelete && (
                 <button
-                  onClick={() => window.open(resource.url, '_blank')}
-                  className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded"
-                  title="Preview"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="p-1 text-red-400 hover:text-red-600 dark:hover:text-red-300 rounded disabled:opacity-50"
+                  title="Delete"
                 >
-                  <Eye size={16} />
+                  <Trash2 size={16} />
                 </button>
-                <button
-                  onClick={handleDownload}
-                  className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
-                >
-                  Download
-                </button>
-                {canDelete && (
-                  <button
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                    className="p-1 text-red-400 hover:text-red-600 dark:hover:text-red-300 rounded disabled:opacity-50"
-                    title="Delete"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
       </div>
     </motion.div>
   );
-};
+});
+
+ResourceCard.displayName = 'ResourceCard';

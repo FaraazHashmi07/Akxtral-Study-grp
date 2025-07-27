@@ -4,9 +4,6 @@ import {
   User,
   Settings,
   LogOut,
-  Moon,
-  Sun,
-  Monitor,
   ChevronDown
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -14,7 +11,7 @@ import { useUIStore } from '../../store/uiStore';
 
 export const UserProfileDropdown: React.FC = () => {
   const { user, signOut, refreshUserProfile } = useAuthStore();
-  const { theme, setTheme, openModal } = useUIStore();
+  const { openModal } = useUIStore();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -71,27 +68,9 @@ export const UserProfileDropdown: React.FC = () => {
     }
   };
 
-  const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
-    setTheme(newTheme);
-    setIsOpen(false);
-  };
-
   const handleOpenSettings = () => {
     openModal('userSettings');
     setIsOpen(false);
-  };
-
-  const getThemeIcon = () => {
-    switch (theme) {
-      case 'light':
-        return <Sun size={16} />;
-      case 'dark':
-        return <Moon size={16} />;
-      case 'system':
-        return <Monitor size={16} />;
-      default:
-        return <Monitor size={16} />;
-    }
   };
 
   const getStatusColor = () => {
@@ -204,36 +183,6 @@ export const UserProfileDropdown: React.FC = () => {
               </button>
 
 
-
-              {/* Theme Selector */}
-              <div className="px-4 py-2">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-                  Theme
-                </p>
-                <div className="space-y-1">
-                  {[
-                    { value: 'light', label: 'Light', icon: Sun },
-                    { value: 'dark', label: 'Dark', icon: Moon },
-                    { value: 'system', label: 'System', icon: Monitor }
-                  ].map(({ value, label, icon: Icon }) => (
-                    <button
-                      key={value}
-                      onClick={() => handleThemeChange(value as any)}
-                      className={`w-full flex items-center space-x-3 px-3 py-1.5 text-sm rounded transition-colors ${
-                        theme === value
-                          ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
-                    >
-                      <Icon size={14} />
-                      <span>{label}</span>
-                      {theme === value && (
-                        <div className="ml-auto w-2 h-2 bg-blue-600 dark:bg-blue-400 rounded-full" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {/* Divider */}
               <div className="border-t border-gray-200 dark:border-gray-700 my-2" />

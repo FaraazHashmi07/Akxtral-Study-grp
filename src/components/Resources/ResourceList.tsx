@@ -68,12 +68,7 @@ export const ResourceList: React.FC<ResourceListProps> = ({
         case 'uploadedAt':
           comparison = new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime();
           break;
-        case 'downloads':
-          comparison = a.downloads - b.downloads;
-          break;
-        case 'likes':
-          comparison = a.likes.length - b.likes.length;
-          break;
+
         default:
           comparison = 0;
       }
@@ -131,7 +126,7 @@ export const ResourceList: React.FC<ResourceListProps> = ({
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</span>
               <div className="flex items-center space-x-1">
-                {(['name', 'uploadedAt', 'downloads', 'likes'] as const).map((field) => (
+                {(['name', 'uploadedAt'] as const).map((field) => (
                   <button
                     key={field}
                     onClick={() => handleSortChange(field)}

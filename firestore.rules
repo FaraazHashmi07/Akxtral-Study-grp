@@ -231,12 +231,22 @@ service cloud.firestore {
         allow delete: if isAuthenticated() && isCommunityCreator(communityId);
       }
 
-      // Community events
+      // Community events - Updated for calendar functionality
       match /events/{eventId} {
-        allow read: if isAuthenticated() && (isCommunityMember(communityId) || isSuperAdmin());
-        allow create: if isAuthenticated() && isCommunityMember(communityId);
-        allow update: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId));
-        allow delete: if isAuthenticated() && (isOwner(resource.data.createdBy) || isCommunityModerator(communityId) || isSuperAdmin());
+        // All authenticated users can read events (for viewing calendar)
+        allow read: if isAuthenticated();
+        
+        // Only community admins can create events
+        allow create: if isAuthenticated() && 
+                      isCommunityAdmin(communityId) &&
+                      request.resource.data.createdBy == request.auth.uid &&
+                      request.resource.data.communityId == communityId;
+        
+        // Only community admins can update events
+        allow update: if isAuthenticated() && isCommunityAdmin(communityId);
+        
+        // Only community admins can delete events
+        allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
         
         // ACCOUNT DELETION: Community creators can delete all events during community deletion
         allow delete: if isAuthenticated() && isCommunityCreator(communityId);
@@ -265,19 +275,27 @@ service cloud.firestore {
 
     // Top-level resources collection (for current implementation)
     match /resources/{resourceId} {
-      // SIMPLIFIED: Allow all authenticated users to read resources for now
+      // Allow all authenticated users to read resources for now
       // TODO: Implement proper community membership checking
       allow read: if isAuthenticated();
 
+      // Allow authenticated users to create resources with their own uploadedBy
       allow create: if isAuthenticated() && request.resource.data.uploadedBy == request.auth.uid;
+      
+      // Allow resource owners to update their resources
       allow update: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||
         isSuperAdmin()
       );
-      // ACCOUNT DELETION: Users can delete their own resources
+      
+      // Allow resource owners, community admins, or super admins to delete resources
       allow delete: if isAuthenticated() && (
         resource.data.uploadedBy == request.auth.uid ||
-        isSuperAdmin()
+        isSuperAdmin() ||
+        // Check if user is community admin for the resource's community
+        (resource.data.communityId != null && 
+         exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid)).data.role == 'community_admin')
       );
     }
 

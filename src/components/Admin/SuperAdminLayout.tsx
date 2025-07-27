@@ -6,9 +6,6 @@ import {
   Users,
   Building2,
   LogOut,
-  Moon,
-  Sun,
-  Monitor,
   Shield
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -24,7 +21,6 @@ import { AdminUsers } from './pages/AdminUsersPage';
 
 export const SuperAdminLayout: React.FC = () => {
   const { signOut } = useAuthStore();
-  const { theme, setTheme } = useUIStore();
   const { activeAdminSection, setActiveAdminSection } = useSuperAdminStore();
   const location = useLocation();
   const navigate = useNavigate();
@@ -71,11 +67,7 @@ export const SuperAdminLayout: React.FC = () => {
     }
   ];
 
-  const themeOptions = [
-    { value: 'light', icon: Sun, label: 'Light' },
-    { value: 'dark', icon: Moon, label: 'Dark' },
-    { value: 'system', icon: Monitor, label: 'System' }
-  ];
+
 
   return (
     <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
@@ -124,33 +116,7 @@ export const SuperAdminLayout: React.FC = () => {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700 space-y-2">
-          {/* Theme Selector */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Theme
-            </span>
-            <div className="flex space-x-1">
-              {themeOptions.map((option) => {
-                const Icon = option.icon;
-                return (
-                  <button
-                    key={option.value}
-                    onClick={() => setTheme(option.value as any)}
-                    className={`p-2 rounded-md transition-colors ${
-                      theme === option.value
-                        ? 'bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400'
-                        : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                    }`}
-                    title={option.label}
-                  >
-                    <Icon size={16} />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           {/* Sign Out */}
           <button
             onClick={handleSignOut}

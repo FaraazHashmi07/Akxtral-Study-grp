@@ -45,9 +45,6 @@ export const ThreadSidebar: React.FC<ThreadSidebarProps> = ({
   const currentThread = threads[messageId];
   const hasExistingThread = originalMessage?.hasThread;
 
-  // Detect dark mode
-  const isDarkMode = document.documentElement.classList.contains('dark');
-
   useEffect(() => {
     if (isOpen && messageId) {
       if (hasExistingThread) {
@@ -260,7 +257,6 @@ export const ThreadSidebar: React.FC<ThreadSidebarProps> = ({
                     isOpen={showEmojiPicker}
                     onClose={() => setShowEmojiPicker(false)}
                     onEmojiSelect={handleEmojiSelect}
-                    isDarkMode={isDarkMode}
                   />
                 </div>
               </div>

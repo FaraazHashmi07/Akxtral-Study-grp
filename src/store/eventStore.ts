@@ -1,64 +1,67 @@
 import { create } from 'zustand';
-import { Event, EventRSVP } from '../types';
+import { Event } from '../types';
+import { 
+  createEvent as createEventService,
+  updateEvent as updateEventService,
+  deleteEvent as deleteEventService,
+  getCommunityEvents,
+  subscribeToEvents,
+  getEventsForDate
+} from '../services/eventService';
+import { useAuthStore } from './authStore';
 
 interface EventState {
   // State
   events: Record<string, Event[]>; // communityId -> events
-  userRSVPs: Record<string, EventRSVP>; // eventId -> user's RSVP
   loading: boolean;
   error: string | null;
   
   // Calendar view state
-  calendarView: 'month' | 'week' | 'day' | 'agenda';
   selectedDate: Date;
+  
+  // Real-time subscriptions
+  unsubscribers: Record<string, () => void>; // communityId -> unsubscribe function
   
   // Actions
   loadEvents: (communityId: string, startDate?: Date, endDate?: Date) => Promise<void>;
-  createEvent: (communityId: string, eventData: Partial<Event>) => Promise<Event>;
-  updateEvent: (eventId: string, updates: Partial<Event>) => Promise<void>;
-  deleteEvent: (eventId: string) => Promise<void>;
-  
-  // RSVP management
-  rsvpToEvent: (eventId: string, status: 'yes' | 'no' | 'maybe', note?: string) => Promise<void>;
-  loadEventRSVPs: (eventId: string) => Promise<EventRSVP[]>;
+  subscribeToEvents: (communityId: string, startDate?: Date, endDate?: Date) => void;
+  unsubscribeFromEvents: (communityId: string) => void;
+  createEvent: (communityId: string, eventData: Omit<Event, 'id' | 'createdAt' | 'createdBy' | 'createdByName'>) => Promise<Event>;
+  updateEvent: (communityId: string, eventId: string, updates: Partial<Event>) => Promise<void>;
+  deleteEvent: (communityId: string, eventId: string) => Promise<void>;
   
   // Calendar navigation
-  setCalendarView: (view: 'month' | 'week' | 'day' | 'agenda') => void;
   setSelectedDate: (date: Date) => void;
   navigateCalendar: (direction: 'prev' | 'next') => void;
   goToToday: () => void;
   
   // Utility functions
-  getEventsForDate: (date: Date, communityId?: string) => Event[];
-  getUpcomingEvents: (communityId?: string, limit?: number) => Event[];
-  getUserEvents: (userId: string) => Event[];
+  getEventsForDateLocal: (date: Date, communityId: string) => Event[];
+  getUpcomingEvents: (communityId: string, limit?: number) => Event[];
 }
 
 export const useEventStore = create<EventState>((set, get) => ({
   // Initial state
   events: {},
-  userRSVPs: {},
   loading: false,
   error: null,
-  calendarView: 'month',
   selectedDate: new Date(),
+  unsubscribers: {},
 
   // Load events for a community within a date range
   loadEvents: async (communityId, startDate, endDate) => {
     set({ loading: true, error: null });
+    
     try {
-      // TODO: Implement Firestore query for community events
-      // const events = await getCommunityEvents(communityId, startDate, endDate);
-      const events: Event[] = []; // Placeholder
+      const events = await getCommunityEvents(communityId, startDate, endDate);
       
-      const { events: currentEvents } = get();
-      set({
+      set((state) => ({
         events: {
-          ...currentEvents,
+          ...state.events,
           [communityId]: events
         },
         loading: false
-      });
+      }));
     } catch (error) {
       set({ 
         error: error instanceof Error ? error.message : 'Failed to load events',
@@ -67,39 +70,75 @@ export const useEventStore = create<EventState>((set, get) => ({
     }
   },
 
+  // Subscribe to real-time events
+  subscribeToEvents: (communityId, startDate, endDate) => {
+    const { unsubscribers } = get();
+    
+    // Unsubscribe from existing subscription if any
+    if (unsubscribers[communityId]) {
+      unsubscribers[communityId]();
+    }
+    
+    const unsubscribe = subscribeToEvents(
+      communityId,
+      (events) => {
+        set((state) => ({
+          events: {
+            ...state.events,
+            [communityId]: events
+          }
+        }));
+      },
+      startDate,
+      endDate
+    );
+    
+    set((state) => ({
+      unsubscribers: {
+        ...state.unsubscribers,
+        [communityId]: unsubscribe
+      }
+    }));
+  },
+
+  // Unsubscribe from events
+  unsubscribeFromEvents: (communityId) => {
+    const { unsubscribers } = get();
+    
+    if (unsubscribers[communityId]) {
+      unsubscribers[communityId]();
+      
+      set((state) => {
+        const newUnsubscribers = { ...state.unsubscribers };
+        delete newUnsubscribers[communityId];
+        return { unsubscribers: newUnsubscribers };
+      });
+    }
+  },
+
   // Create a new event (admin only)
   createEvent: async (communityId, eventData) => {
     set({ loading: true, error: null });
+    
     try {
-      // TODO: Implement Firestore event creation
-      // const event = await createEventInFirestore(communityId, eventData);
-      const event: Event = {
-        id: `event_${Date.now()}`,
+      const { user } = useAuthStore.getState();
+      if (!user) throw new Error('User not authenticated');
+      
+      const newEventData = {
+        ...eventData,
         communityId,
-        title: eventData.title || '',
-        description: eventData.description || '',
-        startTime: eventData.startTime || new Date(),
-        endTime: eventData.endTime || new Date(),
-        type: eventData.type || 'study_session',
-        createdBy: 'current-user', // TODO: Get from auth store
-        createdAt: new Date(),
-        rsvps: [],
-        isRecurring: eventData.isRecurring || false,
-        ...eventData
+        createdBy: user.uid,
+        createdByName: user.displayName || user.email || 'Unknown User'
       };
       
-      const { events } = get();
-      const communityEvents = events[communityId] || [];
+      const newEvent = await createEventService(newEventData);
       
-      set({
-        events: {
-          ...events,
-          [communityId]: [...communityEvents, event]
-        },
-        loading: false
-      });
+      // Don't manually update local state - let the real-time subscription handle it
+      // This prevents duplicate entries since the subscription will automatically
+      // receive the new event from Firebase
+      set({ loading: false });
       
-      return event;
+      return newEvent;
     } catch (error) {
       set({ 
         error: error instanceof Error ? error.message : 'Failed to create event',
@@ -110,25 +149,34 @@ export const useEventStore = create<EventState>((set, get) => ({
   },
 
   // Update an existing event (admin only)
-  updateEvent: async (eventId, updates) => {
+  updateEvent: async (communityId, eventId, updates) => {
     set({ loading: true, error: null });
+    
     try {
-      // TODO: Implement Firestore event update
-      // await updateEventInFirestore(eventId, updates);
+      await updateEventService(communityId, eventId, updates);
       
-      const { events } = get();
-      
-      // Update event in all communities
-      const updatedEvents = Object.keys(events).reduce((acc, communityId) => {
-        acc[communityId] = events[communityId].map(e => 
-          e.id === eventId ? { ...e, ...updates } : e
-        );
-        return acc;
-      }, {} as Record<string, Event[]>);
-      
-      set({
-        events: updatedEvents,
-        loading: false
+      // Update local state
+      set((state) => {
+        const communityEvents = state.events[communityId] || [];
+        const eventIndex = communityEvents.findIndex(e => e.id === eventId);
+        
+        if (eventIndex !== -1) {
+          const updatedEvents = [...communityEvents];
+          updatedEvents[eventIndex] = {
+            ...updatedEvents[eventIndex],
+            ...updates
+          };
+          
+          return {
+            events: {
+              ...state.events,
+              [communityId]: updatedEvents
+            },
+            loading: false
+          };
+        }
+        
+        return { loading: false };
       });
     } catch (error) {
       set({ 
@@ -139,28 +187,20 @@ export const useEventStore = create<EventState>((set, get) => ({
   },
 
   // Delete an event (admin only)
-  deleteEvent: async (eventId) => {
+  deleteEvent: async (communityId, eventId) => {
     set({ loading: true, error: null });
+    
     try {
-      // TODO: Implement Firestore event deletion
-      // await deleteEventFromFirestore(eventId);
+      await deleteEventService(communityId, eventId);
       
-      const { events, userRSVPs } = get();
-      
-      // Remove event from all communities
-      const updatedEvents = Object.keys(events).reduce((acc, communityId) => {
-        acc[communityId] = events[communityId].filter(e => e.id !== eventId);
-        return acc;
-      }, {} as Record<string, Event[]>);
-      
-      // Remove user's RSVP for this event
-      const { [eventId]: removedRSVP, ...remainingRSVPs } = userRSVPs;
-      
-      set({
-        events: updatedEvents,
-        userRSVPs: remainingRSVPs,
+      // Remove from local state
+      set((state) => ({
+        events: {
+          ...state.events,
+          [communityId]: (state.events[communityId] || []).filter(e => e.id !== eventId)
+        },
         loading: false
-      });
+      }));
     } catch (error) {
       set({ 
         error: error instanceof Error ? error.message : 'Failed to delete event',
@@ -169,95 +209,19 @@ export const useEventStore = create<EventState>((set, get) => ({
     }
   },
 
-  // RSVP to an event
-  rsvpToEvent: async (eventId, status, note) => {
-    try {
-      // TODO: Implement Firestore RSVP creation/update
-      // await createOrUpdateRSVP(eventId, status, note);
-      
-      const rsvp: EventRSVP = {
-        userId: 'current-user', // TODO: Get from auth store
-        status,
-        respondedAt: new Date(),
-        note
-      };
-      
-      const { userRSVPs, events } = get();
-      
-      // Update user's RSVP
-      set({
-        userRSVPs: {
-          ...userRSVPs,
-          [eventId]: rsvp
-        }
-      });
-      
-      // Update event's RSVP list
-      const updatedEvents = Object.keys(events).reduce((acc, communityId) => {
-        acc[communityId] = events[communityId].map(e => {
-          if (e.id === eventId) {
-            const existingRSVPIndex = e.rsvps.findIndex(r => r.userId === rsvp.userId);
-            const updatedRSVPs = [...e.rsvps];
-            
-            if (existingRSVPIndex >= 0) {
-              updatedRSVPs[existingRSVPIndex] = rsvp;
-            } else {
-              updatedRSVPs.push(rsvp);
-            }
-            
-            return { ...e, rsvps: updatedRSVPs };
-          }
-          return e;
-        });
-        return acc;
-      }, {} as Record<string, Event[]>);
-      
-      set({ events: updatedEvents });
-    } catch (error) {
-      console.error('Failed to RSVP to event:', error);
-    }
-  },
 
-  // Load RSVPs for a specific event
-  loadEventRSVPs: async (eventId) => {
-    try {
-      // TODO: Implement Firestore query for event RSVPs
-      // const rsvps = await getEventRSVPs(eventId);
-      const rsvps: EventRSVP[] = []; // Placeholder
-      return rsvps;
-    } catch (error) {
-      console.error('Failed to load event RSVPs:', error);
-      return [];
-    }
-  },
 
-  // Calendar view management
-  setCalendarView: (view) => {
-    set({ calendarView: view });
-  },
-
+  // Calendar navigation
   setSelectedDate: (date) => {
     set({ selectedDate: date });
   },
 
   navigateCalendar: (direction) => {
-    const { selectedDate, calendarView } = get();
+    const { selectedDate } = get();
     const newDate = new Date(selectedDate);
     
-    switch (calendarView) {
-      case 'month':
-        newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1));
-        break;
-      case 'week':
-        newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
-        break;
-      case 'day':
-        newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
-        break;
-      case 'agenda':
-        newDate.setDate(newDate.getDate() + (direction === 'next' ? 7 : -7));
-        break;
-    }
+    // Only handle month navigation
+    newDate.setMonth(newDate.getMonth() + (direction === 'next' ? 1 : -1));
     
     set({ selectedDate: newDate });
   },
@@ -267,7 +231,7 @@ export const useEventStore = create<EventState>((set, get) => ({
   },
 
   // Utility functions
-  getEventsForDate: (date, communityId) => {
+  getEventsForDateLocal: (date, communityId) => {
     const { events } = get();
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
@@ -297,14 +261,5 @@ export const useEventStore = create<EventState>((set, get) => ({
       .slice(0, limit);
   },
 
-  getUserEvents: (userId) => {
-    const { events, userRSVPs } = get();
-    const allEvents = Object.values(events).flat();
-    
-    return allEvents.filter(event => {
-      // Include events created by user or events they've RSVP'd to
-      return event.createdBy === userId || 
-             (userRSVPs[event.id] && userRSVPs[event.id].status === 'yes');
-    });
-  }
+
 }));

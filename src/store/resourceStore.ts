@@ -71,7 +71,7 @@ interface ResourceState {
   
   // View state
   viewMode: 'grid' | 'list';
-  sortBy: 'name' | 'uploadedAt' | 'downloads' | 'likes';
+  sortBy: 'name' | 'uploadedAt';
   sortOrder: 'asc' | 'desc';
   selectedTags: string[];
   searchQuery: string;
@@ -363,8 +363,17 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
 
       const resourceData = resourceSnapshot.data();
 
-      // Check if user has permission to delete (must be the uploader)
-      if (resourceData.uploadedBy !== auth.currentUser.uid) {
+      // Check if user has permission to delete (must be the uploader or community admin)
+      const isOwner = resourceData.uploadedBy === auth.currentUser.uid;
+      
+      // Import authorization functions dynamically to avoid circular imports
+      const { canBulkManageResources } = await import('../lib/authorization');
+      const { useAuthStore } = await import('./authStore');
+      
+      const authStore = useAuthStore.getState();
+      const canManage = authStore.user && canBulkManageResources(authStore.user, resourceData.communityId);
+      
+      if (!isOwner && !canManage) {
         throw new Error('You do not have permission to delete this resource');
       }
 
@@ -617,12 +626,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
         case 'uploadedAt':
           comparison = new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime();
           break;
-        case 'downloads':
-          comparison = a.downloads - b.downloads;
-          break;
-        case 'likes':
-          comparison = a.likes.length - b.likes.length;
-          break;
+
       }
       
       return sortOrder === 'asc' ? comparison : -comparison;

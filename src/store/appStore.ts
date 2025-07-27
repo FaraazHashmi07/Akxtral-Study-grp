@@ -185,7 +185,6 @@ const mockAnalyticsData: AnalyticsData = {
 
 export const useAppStore = create<AppState>((set, get) => ({
   currentView: 'dashboard',
-  isDarkMode: false,
   showCommandPalette: false,
   showNotifications: false,
   showSignOutConfirm: false,
@@ -237,7 +236,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   events: [],
   analyticsData: mockAnalyticsData,
   setCurrentView: (view) => set({ currentView: view }),
-  toggleDarkMode: () => set((state) => ({ isDarkMode: !state.isDarkMode })),
   toggleCommandPalette: () => set((state) => ({ showCommandPalette: !state.showCommandPalette })),
   toggleNotifications: () => set((state) => ({ showNotifications: !state.showNotifications })),
   toggleSignOutConfirm: () => set((state) => ({ showSignOutConfirm: !state.showSignOutConfirm })),

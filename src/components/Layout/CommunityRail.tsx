@@ -4,7 +4,7 @@ import { Plus, Search, Home, Crown } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
-import { isCommunityAdminEnhanced } from '../../lib/authorization';
+import { isCommunityAdmin } from '../../lib/authorization';
 import { Community } from '../../types';
 
 // Discord-style CSS for the community rail
@@ -248,8 +248,8 @@ export const CommunityRail: React.FC = () => {
   const isAdmin = (community: Community) => {
     if (!user) return false;
 
-    // Use the enhanced authorization function that properly checks both role and creator status
-    const adminStatus = isCommunityAdminEnhanced(user, community.id, community);
+    // Use the basic authorization function to check admin role
+    const adminStatus = isCommunityAdmin(user, community.id);
 
     return adminStatus;
   };

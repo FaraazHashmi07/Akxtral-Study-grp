@@ -14,7 +14,6 @@ interface UIStore extends UIState {
   modals: Record<string, any>;
   
   // Actions
-  setTheme: (theme: 'light' | 'dark' | 'system') => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   
@@ -53,7 +52,6 @@ export const useUIStore = create<UIStore>()(
   persist(
     (set, get) => ({
       // Initial state
-      theme: 'system',
       sidebarCollapsed: false,
       activeModal: null,
       commandPaletteOpen: false,
@@ -67,27 +65,6 @@ export const useUIStore = create<UIStore>()(
       notifications: [],
       unreadNotificationCount: 0,
       modals: {},
-
-      // Theme management
-      setTheme: (theme) => {
-        set({ theme });
-        
-        // Apply theme to document
-        const root = document.documentElement;
-        if (theme === 'dark') {
-          root.classList.add('dark');
-        } else if (theme === 'light') {
-          root.classList.remove('dark');
-        } else {
-          // System theme
-          const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-          if (prefersDark) {
-            root.classList.add('dark');
-          } else {
-            root.classList.remove('dark');
-          }
-        }
-      },
 
       // Sidebar management
       toggleSidebar: () => {
@@ -303,7 +280,6 @@ export const useUIStore = create<UIStore>()(
     {
       name: 'ui-store',
       partialize: (state) => ({
-        theme: state.theme,
         sidebarCollapsed: state.sidebarCollapsed,
         activeCommunityId: state.activeCommunityId,
         activeChannelId: state.activeChannelId,
@@ -313,19 +289,9 @@ export const useUIStore = create<UIStore>()(
   )
 );
 
-// Initialize theme on store creation
+// Initialize keyboard shortcuts
 if (typeof window !== 'undefined') {
   const store = useUIStore.getState();
-  store.setTheme(store.theme);
-  
-  // Listen for system theme changes
-  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-  mediaQuery.addEventListener('change', () => {
-    const currentTheme = useUIStore.getState().theme;
-    if (currentTheme === 'system') {
-      store.setTheme('system');
-    }
-  });
   
   // Global keyboard shortcut listener
   document.addEventListener('keydown', (event) => {

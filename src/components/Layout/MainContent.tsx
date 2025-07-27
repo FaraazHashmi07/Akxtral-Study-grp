@@ -1,13 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Menu, Search } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useUIStore } from '../../store/uiStore';
 import { useCommunityStore } from '../../store/communityStore';
 import { useAuthStore } from '../../store/authStore';
 import { UserProfileDropdown } from '../UI/UserProfileDropdown';
 
 // Import section components (we'll create these next)
-import { DashboardSection } from '../Sections/DashboardSection';
 import { AnnouncementsSection } from '../Sections/AnnouncementsSection';
 import { ChatSection } from '../Sections/ChatSection';
 import { ResourcesSection } from '../Sections/ResourcesSection';
@@ -22,16 +21,13 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
   const { 
     activeSection, 
     activeCommunityId,
-    toggleSidebar,
-    setCommandPaletteOpen
+    toggleSidebar
   } = useUIStore();
   
   const { activeCommunity } = useCommunityStore();
   const { user } = useAuthStore();
 
-  const handleSearchClick = () => {
-    setCommandPaletteOpen(true);
-  };
+
 
   const renderSection = () => {
     // Primary condition: Always show HomeSection when no community ID is set
@@ -57,13 +53,6 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
     );
 
     switch (activeSection) {
-      case 'dashboard':
-        // Dashboard is admin-only
-        if (!isAdmin) {
-          console.log('⚠️ [MAIN] Non-admin user trying to access dashboard, redirecting to announcements');
-          return <AnnouncementsSection />;
-        }
-        return <DashboardSection />;
       case 'announcements':
         return <AnnouncementsSection />;
       case 'chat':
@@ -73,8 +62,8 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
       case 'calendar':
         return <CalendarSection />;
       default:
-        // Default to announcements for non-admins, dashboard for admins
-        return isAdmin ? <DashboardSection /> : <AnnouncementsSection />;
+        // Default to announcements
+        return <AnnouncementsSection />;
     }
   };
 
@@ -82,8 +71,6 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
     if (!activeCommunity) return 'Study Groups';
 
     switch (activeSection) {
-      case 'dashboard':
-        return 'Dashboard';
       case 'announcements':
         return 'Announcements';
       case 'chat':
@@ -137,19 +124,6 @@ export const MainContent: React.FC<MainContentProps> = ({ children }) => {
 
         {/* Right side */}
         <div className="flex items-center space-x-2">
-          {/* Search button */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleSearchClick}
-            className="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            title="Search (Ctrl+K)"
-          >
-            <Search size={20} />
-          </motion.button>
-
-
-
           {/* User Profile Dropdown */}
           <UserProfileDropdown />
         </div>

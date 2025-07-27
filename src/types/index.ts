@@ -361,18 +361,13 @@ export interface Event {
   id: string;
   communityId: string;
   title: string;
-  description: string;
+  description?: string;
   startTime: Date;
-  endTime: Date;
   location?: string;
   meetingLink?: string;
-  type: 'study_session' | 'meeting' | 'exam' | 'deadline' | 'social';
   createdBy: string;
+  createdByName: string;
   createdAt: Date;
-  rsvps: EventRSVP[];
-  maxAttendees?: number;
-  isRecurring: boolean;
-  recurrenceRule?: string;
 }
 
 export interface EventRSVP {
@@ -398,14 +393,13 @@ export interface Notification {
 
 // ===== UI STATE =====
 export interface UIState {
-  theme: 'light' | 'dark' | 'system';
   sidebarCollapsed: boolean;
   activeModal: string | null;
   commandPaletteOpen: boolean;
   notificationPanelOpen: boolean;
   activeCommunityId: string | null;
   activeChannelId: string | null;
-  activeSection: 'dashboard' | 'announcements' | 'chat' | 'resources' | 'calendar';
+  activeSection: 'announcements' | 'chat' | 'resources' | 'calendar';
 }
 
 // ===== SUPER ADMIN UI STATE =====

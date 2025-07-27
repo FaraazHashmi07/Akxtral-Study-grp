@@ -1,19 +1,17 @@
 import React, { useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 
 interface EmojiPickerProps {
   isOpen: boolean;
   onClose: () => void;
   onEmojiSelect: (emoji: string) => void;
-  isDarkMode?: boolean;
 }
 
 export const EmojiPickerComponent: React.FC<EmojiPickerProps> = ({
   isOpen,
   onClose,
-  onEmojiSelect,
-  isDarkMode = false
+  onEmojiSelect
 }) => {
   const pickerRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +53,6 @@ export const EmojiPickerComponent: React.FC<EmojiPickerProps> = ({
         >
           <EmojiPicker
             onEmojiClick={handleEmojiClick}
-            theme={isDarkMode ? Theme.DARK : Theme.LIGHT}
             width={320}
             height={400}
             previewConfig={{

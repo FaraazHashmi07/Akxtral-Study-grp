@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  BarChart3,
   Megaphone,
   MessageCircle,
   FolderOpen,
@@ -121,14 +120,7 @@ export const CommunitySidebar: React.FC = () => {
   ];
 
   // Admin-only sections
-  const adminSections = [
-    {
-      id: 'dashboard',
-      name: 'Dashboard',
-      icon: BarChart3,
-      description: 'Community overview and analytics'
-    }
-  ];
+  const adminSections = [];
 
   // Combine sections based on user role
   const sections = isAdmin ? [...adminSections, ...baseSections] : baseSections;

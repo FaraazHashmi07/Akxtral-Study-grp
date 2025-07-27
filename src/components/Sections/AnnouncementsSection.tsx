@@ -6,7 +6,7 @@ import { useAnnouncementStore } from '../../store/announcementStore';
 import { useAuthStore } from '../../store/authStore';
 import { AnnouncementCard } from '../Announcements/AnnouncementCard';
 import { CreateAnnouncementModal } from '../Modals/CreateAnnouncementModal';
-import { isCommunityAdmin, isCommunityAdminEnhanced } from '../../lib/authorization';
+import { isCommunityAdmin } from '../../lib/authorization';
 
 export const AnnouncementsSection: React.FC = () => {
   const { activeCommunity } = useCommunityStore();
@@ -28,7 +28,7 @@ export const AnnouncementsSection: React.FC = () => {
 
   // Check if user is admin - using enhanced function that includes creator check
   const isAdmin = user && activeCommunity ?
-    isCommunityAdminEnhanced(user, activeCommunity.id, activeCommunity) :
+    isCommunityAdmin(user, activeCommunity.id) :
     false;
 
   const handleMarkAllAsRead = async () => {
@@ -41,7 +41,7 @@ export const AnnouncementsSection: React.FC = () => {
   useEffect(() => {
     if (user && activeCommunity) {
       const basicAuthResult = isCommunityAdmin(user, activeCommunity.id);
-      const enhancedAuthResult = isCommunityAdminEnhanced(user, activeCommunity.id, activeCommunity);
+      const authResult = isCommunityAdmin(user, activeCommunity.id);
       const isCreator = user.uid === activeCommunity.createdBy;
       const hasRole = user.communityRoles?.[activeCommunity.id]?.role === 'community_admin';
 
@@ -50,7 +50,7 @@ export const AnnouncementsSection: React.FC = () => {
         communityId: activeCommunity.id,
         communityCreatedBy: activeCommunity.createdBy,
         basicAuthResult,
-        enhancedAuthResult,
+        authResult,
         isCreator,
         hasRole,
         finalIsAdmin: isAdmin,

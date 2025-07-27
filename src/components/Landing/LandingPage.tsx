@@ -21,7 +21,6 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
-  const { theme, setTheme } = useUIStore();
 
   const features = [
     {
@@ -114,15 +113,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onGetStarted }) => {
 
             {/* Navigation Items */}
             <div className="flex items-center space-x-6">
-              {/* Theme Toggle */}
-              <button
-                onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-                className="p-2 rounded-lg bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                title="Toggle theme"
-              >
-                {theme === 'dark' ? '🌞' : '🌙'}
-              </button>
-
               {/* Get Started Button */}
               <motion.button
                 whileHover={{ scale: 1.05 }}
