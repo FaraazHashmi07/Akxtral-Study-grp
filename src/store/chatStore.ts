@@ -1025,16 +1025,29 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
       const currentCommunityMessages = currentMessages[communityId] || [];
 
       // 🚀 PERFORMANCE: Smart merge to prevent duplicates
-      const firestoreMessages: Message[] = snapshot.docs.map(doc => {
+      // First, deduplicate Firestore messages by ID using a Map
+      const firestoreMessageMap = new Map<string, Message>();
+      
+      snapshot.docs.forEach(doc => {
         const data = doc.data();
-        return {
+        const message: Message = {
           id: doc.id,
           ...data,
           createdAt: data.createdAt?.toDate() || new Date(),
           editedAt: data.editedAt?.toDate(),
           pinnedAt: data.pinnedAt?.toDate()
         } as Message;
-      }); // Messages already in ascending order
+        
+        // Only add if not already present (prevents duplicates)
+        if (!firestoreMessageMap.has(doc.id)) {
+          firestoreMessageMap.set(doc.id, message);
+        } else {
+          console.log('🔧 [CHAT] Skipping duplicate Firestore message:', doc.id);
+        }
+      });
+      
+      const firestoreMessages = Array.from(firestoreMessageMap.values());
+      console.log('📊 [CHAT] Deduplicated Firestore messages:', firestoreMessages.length, 'from', snapshot.docs.length, 'docs');
 
       // 🔧 FIX DUPLICATES: Filter out optimistic messages that now exist in Firestore
       const optimisticMessages = currentCommunityMessages.filter(msg => {
@@ -1055,10 +1068,22 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
         return !hasFirestoreMatch;
       });
 
-      console.log('📊 [CHAT] Message counts - Firestore:', firestoreMessages.length, 'Optimistic:', optimisticMessages.length, 'Total:', firestoreMessages.length + optimisticMessages.length);
-
-      const finalMessages = [...firestoreMessages, ...optimisticMessages]
+      // 🔒 FINAL DEDUPLICATION: Ensure no duplicate IDs in final array
+      const allMessages = [...firestoreMessages, ...optimisticMessages];
+      const finalMessageMap = new Map<string, Message>();
+      
+      allMessages.forEach(msg => {
+        if (!finalMessageMap.has(msg.id)) {
+          finalMessageMap.set(msg.id, msg);
+        } else {
+          console.log('🚨 [CHAT] Prevented duplicate message in final array:', msg.id);
+        }
+      });
+      
+      const finalMessages = Array.from(finalMessageMap.values())
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+      console.log('📊 [CHAT] Message counts - Firestore:', firestoreMessages.length, 'Optimistic:', optimisticMessages.length, 'Final:', finalMessages.length);
 
       // 🔥 INSTANT UPDATE: Use requestAnimationFrame for smooth UI updates
       requestAnimationFrame(() => {

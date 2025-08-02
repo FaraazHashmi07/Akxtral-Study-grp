@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   Megaphone,
@@ -12,7 +12,9 @@ import {
   Users,
   Crown,
   UserCheck,
-  Trash2
+  Trash2,
+  LogOut,
+  MoreVertical
 } from 'lucide-react';
 import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -20,23 +22,27 @@ import { useCommunityStore } from '../../store/communityStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 import { useAnnouncementStore } from '../../store/announcementStore';
+import { isCommunityAdminEnhanced } from '../../lib/authorization';
+import { toast } from 'sonner';
 import { getPendingJoinRequestsCount } from '../../services/communityService';
 // Note: ChatChannel import removed - new system is community-based
 
 export const CommunitySidebar: React.FC = () => {
-  const { activeCommunity, communityMembers } = useCommunityStore();
+  const { activeCommunity, communityMembers, leaveCommunity } = useCommunityStore();
   // Note: New chat system is community-based, not channel-based
-  const { activeSection, setActiveSection, openModal } = useUIStore();
+  const { activeSection, setActiveSection, openModal, setActiveCommunity: setUIActiveCommunity } = useUIStore();
   const { user } = useAuthStore();
   const { getUnreadCount, subscribeToReadStatus, unsubscribeFromReadStatus } = useAnnouncementStore();
 
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+  const [showMemberMenu, setShowMemberMenu] = useState(false);
+  const [isLeavingCommunity, setIsLeavingCommunity] = useState(false);
+  const memberMenuRef = useRef<HTMLDivElement>(null);
 
   // Check if user is admin - either through roles or if they created the community
-  const isAdmin = user && activeCommunity && (
-    user.communityRoles?.[activeCommunity.id]?.role === 'community_admin' ||
-    user.uid === activeCommunity.createdBy
-  );
+  const isAdmin = isCommunityAdminEnhanced(user, activeCommunity?.id || '', activeCommunity);
+  const isCreator = user && activeCommunity && user.uid === activeCommunity.createdBy;
+  const canLeaveCommunity = user && activeCommunity && !isAdmin && !isCreator;
 
   // Subscribe to real-time pending join requests count for admins
   useEffect(() => {
@@ -82,7 +88,21 @@ export const CommunitySidebar: React.FC = () => {
         unsubscribeFromReadStatus(activeCommunity.id);
       };
     }
-  }, [activeCommunity?.id, user, subscribeToReadStatus, unsubscribeFromReadStatus]);
+  }, [activeCommunity?.id, user]); // Removed function dependencies to prevent infinite re-renders
+
+  // Close member menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (memberMenuRef.current && !memberMenuRef.current.contains(event.target as Node)) {
+        setShowMemberMenu(false);
+      }
+    };
+
+    if (showMemberMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMemberMenu]);
 
   if (!activeCommunity) return null;
 
@@ -137,6 +157,31 @@ export const CommunitySidebar: React.FC = () => {
     // Note: New chat system doesn't need channel selection
   };
 
+  const handleLeaveCommunity = async () => {
+    if (!activeCommunity || !user) return;
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to leave ${activeCommunity.name}? You will lose access to all community content and may need approval to rejoin.`
+    );
+    
+    if (!confirmed) return;
+    
+    setIsLeavingCommunity(true);
+    try {
+      await leaveCommunity(activeCommunity.id);
+      toast.success(`You have left ${activeCommunity.name}`);
+      
+      // Redirect to communities list
+      setUIActiveCommunity(null);
+    } catch (error) {
+      console.error('Error leaving community:', error);
+      toast.error('Failed to leave community. Please try again.');
+    } finally {
+      setIsLeavingCommunity(false);
+      setShowMemberMenu(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-800">
       {/* Community Header */}
@@ -163,24 +208,48 @@ export const CommunitySidebar: React.FC = () => {
               </p>
             </div>
           </div>
-          {isAdmin && (
-            <div className="flex space-x-1">
-              <button
-                onClick={() => openModal('joinRequests', {
-                  communityId: activeCommunity.id,
-                  communityName: activeCommunity.name
-                })}
-                className="relative p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                title={`Join Requests${pendingRequestsCount > 0 ? ` (${pendingRequestsCount})` : ''}`}
-              >
-                <UserCheck size={16} />
-                {pendingRequestsCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
-                  </span>
-                )}
-              </button>
+          <div className="flex space-x-1">
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => openModal('joinRequests', {
+                    communityId: activeCommunity.id,
+                    communityName: activeCommunity.name
+                  })}
+                  className="relative p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title={`Join Requests${pendingRequestsCount > 0 ? ` (${pendingRequestsCount})` : ''}`}
+                >
+                  <UserCheck size={16} />
+                  {pendingRequestsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                      {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
+                    </span>
+                  )}
+                </button>
 
+                <button
+                  onClick={() => openModal('communitySettings', { community: activeCommunity })}
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title="Community Settings"
+                >
+                  <Settings size={16} />
+                </button>
+
+                <button
+                  onClick={() => openModal('deleteCommunity', {
+                    communityId: activeCommunity.id,
+                    communityName: activeCommunity.name
+                  })}
+                  className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  title="Delete Community"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </>
+            )}
+            
+            {/* Settings button for creators (non-admin but can edit settings) */}
+            {!isAdmin && isCreator && (
               <button
                 onClick={() => openModal('communitySettings', { community: activeCommunity })}
                 className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
@@ -188,19 +257,34 @@ export const CommunitySidebar: React.FC = () => {
               >
                 <Settings size={16} />
               </button>
-
-              <button
-                onClick={() => openModal('deleteCommunity', {
-                  communityId: activeCommunity.id,
-                  communityName: activeCommunity.name
-                })}
-                className="p-2 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                title="Delete Community"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          )}
+            )}
+            
+            {/* Member menu for regular members (non-admin, non-creator) */}
+            {canLeaveCommunity && (
+              <div className="relative" ref={memberMenuRef}>
+                <button
+                  onClick={() => setShowMemberMenu(!showMemberMenu)}
+                  className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  title="Member Options"
+                >
+                  <MoreVertical size={16} />
+                </button>
+                
+                {showMemberMenu && (
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50">
+                    <button
+                      onClick={handleLeaveCommunity}
+                      disabled={isLeavingCommunity}
+                      className="w-full flex items-center space-x-2 px-3 py-2 text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <LogOut size={14} />
+                      <span>{isLeavingCommunity ? 'Leaving...' : 'Leave Community'}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

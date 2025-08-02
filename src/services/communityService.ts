@@ -1543,6 +1543,15 @@ export const subscribeToUserCommunities = (
     }
   }, (error) => {
     console.error('❌ [SERVICE] Error in membership subscription:', error);
+    
+    // Handle permission errors gracefully (e.g., when user account is deleted)
+    if (error.code === 'permission-denied') {
+      console.warn('⚠️ [SERVICE] Permission denied in membership subscription - user may have been deleted or lost access');
+      callback([]); // Return empty array instead of throwing
+      return;
+    }
+    
+    // For other errors, still return empty array to prevent crashes
     callback([]);
   });
 };
@@ -1586,6 +1595,12 @@ export const subscribeToPublicCommunities = (
     callback(communities);
   }, (error) => {
      console.error('❌ [SERVICE] Error in public communities subscription:', error);
+     
+     // Handle permission errors gracefully
+     if (error.code === 'permission-denied') {
+       console.warn('⚠️ [SERVICE] Permission denied in public communities subscription - user may have been deleted or lost access');
+     }
+     
      callback([]);
    });
  };
@@ -1620,6 +1635,16 @@ export const subscribeToCommunityMembers = (
     callback(members);
   }, (error) => {
     console.error('❌ [SERVICE] Error in community members subscription:', error);
+    
+    // Handle permission errors gracefully (e.g., when user account is deleted)
+    if (error.code === 'permission-denied') {
+      console.warn('⚠️ [SERVICE] Permission denied in community members subscription - user may have been deleted or lost access');
+      callback([]); // Return empty array instead of throwing
+      if (onError) onError(new Error('Permission denied - user may have been deleted'));
+      return;
+    }
+    
+    // For other errors, still call the error handler
     if (onError) onError(error);
   });
 };
@@ -1658,6 +1683,15 @@ export const subscribeToCommunityUpdates = (
     }
   }, (error) => {
     console.error('❌ [SERVICE] Error in community updates subscription:', error);
+    
+    // Handle permission errors gracefully (e.g., when user account is deleted)
+    if (error.code === 'permission-denied') {
+      console.warn('⚠️ [SERVICE] Permission denied in community updates subscription - user may have been deleted or lost access');
+      if (onError) onError(new Error('Permission denied - user may have been deleted'));
+      return;
+    }
+    
+    // For other errors, still call the error handler
     if (onError) onError(error);
   });
  };

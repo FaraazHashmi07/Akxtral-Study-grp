@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Reply,
@@ -10,7 +10,10 @@ import {
   HelpCircle,
   FileText,
   Download,
-  Eye
+  Eye,
+  Check,
+  X,
+  Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Message } from '../../types';
@@ -40,14 +43,26 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
   onScrollToMessage
 }) => {
   const { user } = useAuthStore();
-  const { toggleReaction, togglePinMessage, deleteMessage, openThread } = useChatStore();
+  const { toggleReaction, togglePinMessage, deleteMessage, openThread, editMessage } = useChatStore();
   const [showActions, setShowActions] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(message.content);
+  const [isEditLoading, setIsEditLoading] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
 
   const isOwner = user?.uid === message.authorId;
   const canPin = isAdmin;
   const canDelete = isOwner || isAdmin;
+
+  // Focus the edit input when editing starts
+  useEffect(() => {
+    if (isEditing && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.setSelectionRange(editInputRef.current.value.length, editInputRef.current.value.length);
+    }
+  }, [isEditing]);
 
   const handleReaction = (emoji: string) => {
     toggleReaction(message.id, emoji);
@@ -72,6 +87,52 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
       onReply(message);
     }
     setShowMenu(false);
+  };
+
+  const handleEditStart = () => {
+    setIsEditing(true);
+    setEditContent(message.content);
+    setEditError(null);
+    setShowMenu(false);
+  };
+
+  const handleEditCancel = () => {
+    setIsEditing(false);
+    setEditContent(message.content);
+    setEditError(null);
+  };
+
+  const handleEditSave = async () => {
+    if (!editContent.trim()) {
+      setEditError('Message cannot be empty');
+      return;
+    }
+
+    if (editContent.trim() === message.content) {
+      setIsEditing(false);
+      return;
+    }
+
+    setIsEditLoading(true);
+    setEditError(null);
+
+    try {
+      await editMessage(message.id, editContent.trim());
+      setIsEditing(false);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Failed to edit message');
+    } finally {
+      setIsEditLoading(false);
+    }
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleEditSave();
+    } else if (e.key === 'Escape') {
+      handleEditCancel();
+    }
   };
 
   const renderMessageContent = () => {
@@ -213,7 +274,50 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
           </div>
 
           {/* Content */}
-          {renderMessageContent()}
+          {isEditing ? (
+            <div className="space-y-2">
+              <textarea
+                ref={editInputRef}
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                className="w-full p-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white resize-none"
+                rows={Math.max(1, editContent.split('\n').length)}
+                style={{ minHeight: '36px', maxHeight: '200px' }}
+                disabled={isEditLoading}
+              />
+              {editError && (
+                <p className="text-xs text-red-600 dark:text-red-400">{editError}</p>
+              )}
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleEditSave}
+                  disabled={isEditLoading || !editContent.trim()}
+                  className="flex items-center space-x-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isEditLoading ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Check className="w-3 h-3" />
+                  )}
+                  <span>Save</span>
+                </button>
+                <button
+                  onClick={handleEditCancel}
+                  disabled={isEditLoading}
+                  className="flex items-center space-x-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Cancel</span>
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Press Enter to save, Escape to cancel
+              </p>
+            </div>
+          ) : (
+            renderMessageContent()
+          )}
 
           {/* Reactions */}
           {message.reactions && message.reactions.length > 0 && (
@@ -287,7 +391,7 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
                   )}
                   {isOwner && (
                     <button
-                      onClick={() => setIsEditing(true)}
+                      onClick={handleEditStart}
                       className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center space-x-2"
                     >
                       <Edit3 className="w-4 h-4" />

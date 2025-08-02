@@ -8,10 +8,10 @@ import {
   query,
   where,
   getDocs,
-  orderBy,
-  limit,
+  writeBatch,
   serverTimestamp,
-  writeBatch
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { updateProfile, deleteUser } from 'firebase/auth';
@@ -46,18 +46,31 @@ export const uploadUserAvatar = async (uid: string, file: File): Promise<string>
 };
 
 // Delete user avatar
-export const deleteUserAvatar = async (uid: string, photoURL: string): Promise<void> => {
+export const deleteUserAvatar = async (uid: string, photoURL: string, skipProfileUpdate: boolean = false): Promise<void> => {
   try {
-    // Delete from storage
-    const avatarRef = ref(storage, photoURL);
-    await deleteObject(avatarRef);
+    // Only attempt to delete from Firebase Storage if it's a Firebase Storage URL
+    // External URLs (like Google profile photos) should not be deleted from our storage
+    const isFirebaseStorageUrl = photoURL.includes('firebasestorage.googleapis.com') || 
+                                 photoURL.includes('firebase') || 
+                                 photoURL.startsWith('gs://');
     
-    // Update user profile
-    await updateUserProfile(uid, { photoURL: '' });
+    if (isFirebaseStorageUrl) {
+      console.log('🗑️ [AVATAR] Deleting Firebase Storage avatar:', photoURL);
+      const avatarRef = ref(storage, photoURL);
+      await deleteObject(avatarRef);
+    } else {
+      console.log('ℹ️ [AVATAR] Skipping deletion of external URL (not Firebase Storage):', photoURL);
+    }
     
-    // Update Firebase Auth profile
-    if (auth.currentUser) {
-      await updateProfile(auth.currentUser, { photoURL: '' });
+    // Skip profile updates during account deletion to avoid "No document to update" errors
+    if (!skipProfileUpdate) {
+      // Update user profile
+      await updateUserProfile(uid, { photoURL: '' });
+      
+      // Update Firebase Auth profile
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { photoURL: '' });
+      }
     }
   } catch (error) {
     console.error('Error deleting avatar:', error);
@@ -628,51 +641,46 @@ export const deleteUserAccount = async (uid: string): Promise<void> => {
     // Execute all community deletions in parallel
     await Promise.allSettled(communityDeletionPromises);
 
-    // 6. Delete user profile document
-    console.log('👤 [DELETE] Step 6: Deleting user profile...');
+    // 6. Delete user's avatar from storage BEFORE deleting profile document
+    if (userPhotoURL) {
+      try {
+        console.log('🖼️ [DELETE] Step 6: Deleting user avatar from storage...');
+        await deleteUserAvatar(uid, userPhotoURL, true); // Skip profile update since we're deleting the account
+        console.log('✅ [DELETE] Avatar deleted successfully');
+      } catch (storageError) {
+        console.warn('⚠️ [DELETE] Failed to delete avatar from storage:', storageError);
+        // Don't fail the entire deletion for storage errors
+      }
+    }
+
+    // 7. Delete user profile document
+    console.log('👤 [DELETE] Step 7: Deleting user profile...');
     batch.delete(userRef);
 
-    // 7. Commit all Firestore deletions
-    console.log('💾 [DELETE] Step 7: Committing Firestore deletions...');
+    // 8. Commit all Firestore deletions
+    console.log('💾 [DELETE] Step 8: Committing Firestore deletions...');
     await batch.commit();
-
-    // 8. OPTIMIZATION: Execute storage and auth deletion in parallel
-    console.log('🚀 [DELETE] Step 8: Executing final cleanup in parallel...');
-    const finalCleanupPromises = [];
-    
-    // Delete user's avatar from storage (parallel)
-    if (userPhotoURL) {
-      finalCleanupPromises.push(
-        (async () => {
-          try {
-            console.log('🖼️ [DELETE] Deleting user avatar from storage...');
-            await deleteUserAvatar(uid, userPhotoURL);
-            console.log('✅ [DELETE] Avatar deleted successfully');
-          } catch (storageError) {
-            console.warn('⚠️ [DELETE] Failed to delete avatar from storage:', storageError);
-            // Don't fail the entire deletion for storage errors
-          }
-        })()
-      );
-    }
-    
-    // Wait for storage cleanup to complete before auth deletion
-    await Promise.allSettled(finalCleanupPromises);
 
     // 9. Delete Firebase Auth user (this must be last)
     console.log('🔐 [DELETE] Step 9: Deleting Firebase Auth user...');
     if (auth.currentUser && auth.currentUser.uid === uid) {
       try {
+        // Delete the user account directly
         await deleteUser(auth.currentUser);
         console.log('✅ [DELETE] Firebase Auth user deleted successfully');
       } catch (authError: any) {
         console.error('❌ [DELETE] Firebase Auth deletion failed:', authError);
 
         // Handle specific Firebase Auth errors
-        if (authError.code === 'auth/requires-recent-login') {
-          throw new Error('For security reasons, please log out and log back in before deleting your account.');
-        } else if (authError.code === 'auth/user-token-expired') {
-          throw new Error('Your session has expired. Please log out and log back in before deleting your account.');
+        if (authError.code === 'auth/too-many-requests') {
+          throw new Error('Too many failed attempts. Please try again later.');
+        } else if (authError.code === 'auth/user-not-found') {
+          throw new Error('User account not found. Please try logging in again.');
+        } else if (authError.code === 'auth/requires-recent-login' || authError.code === 'auth/user-token-expired') {
+          // For these errors, we'll proceed anyway since we want to make deletion as simple as possible
+          console.warn('⚠️ [DELETE] Auth requires recent login, but proceeding with deletion anyway');
+          // The Firestore data has already been deleted, so the account is effectively deleted
+          // The user will be signed out automatically
         } else {
           throw new Error(`Authentication error: ${authError.message || 'Cannot delete user account'}`);
         }

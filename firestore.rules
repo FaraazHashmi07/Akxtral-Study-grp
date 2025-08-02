@@ -258,9 +258,17 @@ service cloud.firestore {
         // Users can ONLY read announcements if they are verified community members
         allow read: if isAuthenticated() && isCommunityMember(communityId);
 
-        // Only community admins can create, update, delete announcements
+        // Only community admins can create announcements
         allow create: if isAuthenticated() && isCommunityAdmin(communityId);
+        
+        // Community members can update only the reactions field
+        allow update: if isAuthenticated() && isCommunityMember(communityId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions']);
+        
+        // Community admins can update all fields
         allow update: if isAuthenticated() && isCommunityAdmin(communityId);
+        
+        // Only community admins can delete announcements
         allow delete: if isAuthenticated() && (isCommunityAdmin(communityId) || isSuperAdmin());
         
         // ACCOUNT DELETION: Users can delete their own announcements

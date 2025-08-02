@@ -134,9 +134,9 @@ export const UserSettingsModal: React.FC = () => {
 
     setIsDeleting(true);
     try {
-      console.log('🗑️ [ACCOUNT] Starting account deletion process...');
-
-      // Delete user account and all related data
+      console.log('🔐 [ACCOUNT] Deleting user account...');
+      
+      // Delete user account without password requirement
       await deleteUserAccount(user.uid);
 
       showToast({
@@ -557,6 +557,8 @@ export const UserSettingsModal: React.FC = () => {
                   disabled={isDeleting}
                 />
               </div>
+
+
             </div>
 
             <div className="flex justify-end space-x-3 mt-6">

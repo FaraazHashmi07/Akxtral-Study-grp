@@ -80,6 +80,14 @@ const EventModal: React.FC<EventModalProps> = ({
     
     if (!formData.startTime) {
       newErrors.startTime = 'Date and time are required';
+    } else {
+      // Check if the selected date/time is in the past
+      const selectedDate = new Date(formData.startTime);
+      const now = new Date();
+      
+      if (selectedDate < now) {
+        newErrors.startTime = 'Cannot create events for past dates';
+      }
     }
     
     setErrors(newErrors);

@@ -37,7 +37,7 @@ export const UserProfileDropdown: React.FC = () => {
     if (isOpen && user) {
       refreshUserProfile();
     }
-  }, [isOpen, user, refreshUserProfile]);
+  }, [isOpen, user]); // Removed refreshUserProfile dependency to prevent infinite re-renders
 
   // Close dropdown on escape key
   useEffect(() => {

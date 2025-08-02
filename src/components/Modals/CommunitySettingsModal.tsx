@@ -3,9 +3,11 @@ import { BaseModal } from '../UI/ModalContainer';
 import { Community } from '../../types';
 import { useUIStore } from '../../store/uiStore';
 import { useCommunityStore } from '../../store/communityStore';
-import { Upload, X, Save, Camera } from 'lucide-react';
+import { useAuthStore } from '../../store/authStore';
+import { Upload, X, Save, Camera, AlertTriangle, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { UploadProgress } from '../../services/storageService';
+import { isCommunityAdminEnhanced } from '../../lib/authorization';
 
 interface CommunitySettingsModalProps {
   community: Community;
@@ -22,8 +24,9 @@ const categories = [
 ];
 
 export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ community }) => {
-  const { closeModal } = useUIStore();
-  const { updateCommunity, updateCommunityWithIcon } = useCommunityStore();
+  const { closeModal, setActiveCommunity: setUIActiveCommunity } = useUIStore();
+  const { updateCommunity, updateCommunityWithIcon, leaveCommunity } = useCommunityStore();
+  const { user } = useAuthStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -39,6 +42,12 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
   const [tagInput, setTagInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [isLeavingCommunity, setIsLeavingCommunity] = useState(false);
+
+  // Check if current user is admin/creator
+  const isAdmin = isCommunityAdminEnhanced(user, community?.id || '', community);
+  const isCreator = user && community && user.uid === community.createdBy;
 
   // Sync form data with real-time community updates
   useEffect(() => {
@@ -154,12 +163,39 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
     }
   };
 
+  const handleLeaveCommunity = async () => {
+    if (!community || !user) return;
+    
+    setIsLeavingCommunity(true);
+    try {
+      await leaveCommunity(community.id);
+      toast.success(`You have left ${community.name}`);
+      
+      // Close modal and redirect to communities list
+      closeModal();
+      setUIActiveCommunity(null);
+    } catch (error) {
+      console.error('Error leaving community:', error);
+      toast.error('Failed to leave community. Please try again.');
+    } finally {
+      setIsLeavingCommunity(false);
+      setShowLeaveConfirm(false);
+    }
+  };
+
+  // Determine modal title and content based on user role
+  const canEditSettings = isAdmin || isCreator;
+  const modalTitle = canEditSettings ? `${community?.name} Settings` : `${community?.name} - Member Options`;
+
   return (
-    <BaseModal title={`${community?.name} Settings`} size="lg">
-      <form onSubmit={handleSubmit} className="p-6 space-y-6">
-        {/* Community Icon */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white">Community Icon</h3>
+    <BaseModal title={modalTitle} size="lg">
+      <div className="p-6 space-y-6">
+        {/* Only show community settings form for admins and creators */}
+        {canEditSettings && (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Community Icon */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">Community Icon</h3>
           
           <div className="flex items-center space-x-4">
             <div className="relative">
@@ -320,47 +356,119 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <button
-            type="button"
-            onClick={() => closeModal()}
-            className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isLoading || !formData.name.trim()}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center space-x-2"
-          >
-            <Save size={16} />
-            <span>
-              {isLoading ? (
-                uploadProgress ? 
-                  `Uploading... ${Math.round(uploadProgress.percentage)}%` : 
-                  'Saving...'
-              ) : 'Save Changes'}
-            </span>
-          </button>
-          
-          {/* Upload Progress Bar */}
-          {uploadProgress && (
-            <div className="w-full mt-2">
-              <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
-                <span>Uploading icon...</span>
-                <span>{Math.round(uploadProgress.percentage)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div 
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress.percentage}%` }}
-                ></div>
+            {/* Action Buttons for Settings Form */}
+            <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => closeModal()}
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isLoading || !formData.name.trim()}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center space-x-2"
+              >
+                <Save size={16} />
+                <span>
+                  {isLoading ? (
+                    uploadProgress ? 
+                      `Uploading... ${Math.round(uploadProgress.percentage)}%` : 
+                      'Saving...'
+                  ) : 'Save Changes'}
+                </span>
+              </button>
+              
+              {/* Upload Progress Bar */}
+              {uploadProgress && (
+                <div className="w-full mt-2">
+                  <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    <span>Uploading icon...</span>
+                    <span>{Math.round(uploadProgress.percentage)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress.percentage}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </form>
+        )}
+
+        {/* Danger Zone - Only show for non-admin members */}
+        {!isAdmin && !isCreator && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-red-600 dark:text-red-400">Leave Community</h3>
+            
+            <div className="border border-red-200 dark:border-red-800 rounded-lg p-4 bg-red-50 dark:bg-red-900/20">
+              <div className="flex items-start space-x-3">
+                <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <h4 className="text-sm font-medium text-red-800 dark:text-red-200 mb-1">
+                    Leave Community
+                  </h4>
+                  <p className="text-sm text-red-700 dark:text-red-300 mb-3">
+                    Once you leave this community, you will lose access to all messages, resources, and events. You'll need to request to join again if the community requires approval.
+                  </p>
+                  
+                  {!showLeaveConfirm ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowLeaveConfirm(true)}
+                      className="inline-flex items-center space-x-2 px-3 py-2 text-sm font-medium text-red-700 dark:text-red-200 bg-white dark:bg-red-900/30 border border-red-300 dark:border-red-700 rounded-md hover:bg-red-50 dark:hover:bg-red-900/50 transition-colors"
+                    >
+                      <LogOut size={14} />
+                      <span>Leave Community</span>
+                    </button>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                        Are you sure you want to leave {community?.name}?
+                      </p>
+                      <div className="flex space-x-2">
+                        <button
+                          type="button"
+                          onClick={handleLeaveCommunity}
+                          disabled={isLeavingCommunity}
+                          className="inline-flex items-center space-x-2 px-3 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:bg-red-400 disabled:cursor-not-allowed rounded-md transition-colors"
+                        >
+                          <LogOut size={14} />
+                          <span>{isLeavingCommunity ? 'Leaving...' : 'Yes, Leave'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowLeaveConfirm(false)}
+                          disabled={isLeavingCommunity}
+                          className="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          )}
-        </div>
-      </form>
+          </div>
+        )}
+
+        {/* Close Button for Member Options */}
+        {!canEditSettings && (
+          <div className="flex justify-end pt-6 border-t border-gray-200 dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => closeModal()}
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        )}
+      </div>
     </BaseModal>
   );
 };
