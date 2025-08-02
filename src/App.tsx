@@ -62,7 +62,12 @@ function App() {
     // If user was authenticated but now is null (signed out), show login form
     if (wasAuthenticated && !user && !loading && !isSuperAdmin) {
       setShowLogin(true);
-      setWasAuthenticated(false);
+      // Don't reset wasAuthenticated immediately to prevent redirect to landing page
+    }
+    
+    // If user is authenticated, track that state
+    if (user && !isSuperAdmin) {
+      setWasAuthenticated(true);
     }
   }, [user, loading, isSuperAdmin, wasAuthenticated, isInitialized]);
 
@@ -83,10 +88,14 @@ function App() {
 
   // Show landing page or login if not authenticated (and not Super Admin)
   if (!user && !isSuperAdmin) {
+    // If showLogin is true (from logout or manual trigger), always show login form
     if (showLogin) {
       return (
         <Router>
-          <LoginForm onBackToLanding={() => setShowLogin(false)} />
+          <LoginForm onBackToLanding={() => {
+            setShowLogin(false);
+            setWasAuthenticated(false);
+          }} />
           {showTwoFactor && <TwoFactorModal />}
         </Router>
       );

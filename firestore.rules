@@ -275,9 +275,11 @@ service cloud.firestore {
 
     // Top-level resources collection (for current implementation)
     match /resources/{resourceId} {
-      // Allow all authenticated users to read resources for now
-      // TODO: Implement proper community membership checking
-      allow read: if isAuthenticated();
+      // Only allow community members to read resources
+      allow read: if isAuthenticated() && (
+        resource.data.communityId != null && 
+        exists(/databases/$(database)/documents/communities/$(resource.data.communityId)/roles/$(request.auth.uid))
+      ) || isSuperAdmin();
 
       // Allow authenticated users to create resources with their own uploadedBy
       allow create: if isAuthenticated() && request.resource.data.uploadedBy == request.auth.uid;
@@ -408,3 +410,4 @@ service cloud.firestore {
 
   }
 }
+

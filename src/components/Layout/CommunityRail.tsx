@@ -288,8 +288,8 @@ export const CommunityRail: React.FC = () => {
       {/* Joined Communities */}
       <div className="relative flex-1 min-h-0">
         <div className="communities-container flex flex-col">
-        {loading && uniqueCommunities.length === 0 ? (
-          // Loading state with Discord styling
+        {loading ? (
+          // Loading state with Discord styling - show during any loading
           <div className="flex flex-col">
             {[1, 2, 3].map((i) => (
               <div key={`loading-${i}`} className="discord-icon-container">

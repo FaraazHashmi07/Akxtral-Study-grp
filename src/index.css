@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Message highlight animation for scroll-to functionality */
+.highlight-message {
+  animation: messageHighlight 2s ease-in-out;
+}
+
+@keyframes messageHighlight {
+  0% {
+    background-color: rgba(59, 130, 246, 0.3);
+    transform: scale(1.02);
+  }
+  50% {
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+  100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
 /* Emoji display enhancements */
 .emoji {
   font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Android Emoji', 'EmojiSymbols', sans-serif;

@@ -113,10 +113,10 @@ export const DiscoverCommunitiesModal: React.FC = () => {
       console.log('📋 [MODAL] Calling discoverCommunities with fresh request...');
       const allPublicCommunities = await discoverCommunities({});
 
-      console.log('📊 [MODAL] Discovery result:', {
-        totalFound: allPublicCommunities.length,
-        communityNames: allPublicCommunities.map(c => c.name)
-      });
+      // console.log('📊 [MODAL] Discovery result:', {
+      //   totalFound: allPublicCommunities.length,
+      //   communityNames: allPublicCommunities.map(c => c.name)
+      // });
 
       if (allPublicCommunities.length === 0) {
         console.log('⚠️ [MODAL] No public communities found!');
@@ -136,10 +136,10 @@ export const DiscoverCommunitiesModal: React.FC = () => {
       const originalCount = filteredCommunities.length;
       filteredCommunities = filteredCommunities.filter(community => {
         const isMember = isUserMemberOfCommunity(community.id);
-        console.log(`🔍 [MODAL] Community "${community.name}" (${community.id}): isMember = ${isMember}`);
+        // console.log(`🔍 [MODAL] Community "${community.name}" (${community.id}): isMember = ${isMember}`);
         return !isMember;
       });
-      console.log(`👤 [MODAL] Membership filter: ${originalCount} → ${filteredCommunities.length} (removed ${originalCount - filteredCommunities.length} joined communities)`);
+      // console.log(`👤 [MODAL] Membership filter: ${originalCount} → ${filteredCommunities.length} (removed ${originalCount - filteredCommunities.length} joined communities)`);
 
       // Filter by category if specified
       if (filters.category && filters.category !== 'all') {
@@ -147,7 +147,7 @@ export const DiscoverCommunitiesModal: React.FC = () => {
         filteredCommunities = filteredCommunities.filter(community =>
           community.category === filters.category
         );
-        console.log(`📂 [MODAL] Category filter (${filters.category}): ${categoryOriginalCount} → ${filteredCommunities.length}`);
+        // console.log(`📂 [MODAL] Category filter (${filters.category}): ${categoryOriginalCount} → ${filteredCommunities.length}`);
       }
 
       // Filter by search term if specified
@@ -159,16 +159,16 @@ export const DiscoverCommunitiesModal: React.FC = () => {
           community.description.toLowerCase().includes(searchTerm) ||
           community.tags.some(tag => tag.toLowerCase().includes(searchTerm))
         );
-        console.log(`🔍 [MODAL] Search filter (${searchTerm}): ${originalCount} → ${filteredCommunities.length}`);
+        // console.log(`🔍 [MODAL] Search filter (${searchTerm}): ${originalCount} → ${filteredCommunities.length}`);
       }
 
       // Sort by creation date (newest first)
       filteredCommunities.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-      console.log('✅ [MODAL] Final communities for display:', {
-        count: filteredCommunities.length,
-        names: filteredCommunities.map(c => c.name)
-      });
+      // console.log('✅ [MODAL] Final communities for display:', {
+      //   count: filteredCommunities.length,
+      //   names: filteredCommunities.map(c => c.name)
+      // });
 
       setCommunities(filteredCommunities);
       

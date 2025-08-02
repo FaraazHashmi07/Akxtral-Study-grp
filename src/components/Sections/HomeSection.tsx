@@ -6,7 +6,7 @@ import { useUIStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 
 export const HomeSection: React.FC = () => {
-  const { joinedCommunities } = useCommunityStore();
+  const { joinedCommunities, loading } = useCommunityStore();
   const { openModal } = useUIStore();
   const { user } = useAuthStore();
 
@@ -120,8 +120,47 @@ export const HomeSection: React.FC = () => {
           })}
         </motion.div>
 
+        {/* Loading State */}
+        {loading && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="space-y-6"
+          >
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Your Communities
+            </h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {[...Array(6)].map((_, index) => (
+                <div
+                  key={index}
+                  className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700 animate-pulse"
+                >
+                  <div className="flex items-center space-x-4 mb-4">
+                    <div className="w-12 h-12 bg-gray-300 dark:bg-gray-600 rounded-lg"></div>
+                    <div className="flex-1">
+                      <div className="h-4 bg-gray-300 dark:bg-gray-600 rounded mb-2"></div>
+                      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-2/3"></div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-4/5"></div>
+                  </div>
+                  <div className="flex items-center justify-between mt-4">
+                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
         {/* Recent Communities */}
-        {recentCommunities.length > 0 && (
+        {!loading && recentCommunities.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -144,7 +183,7 @@ export const HomeSection: React.FC = () => {
         )}
 
         {/* Empty State */}
-        {uniqueCommunities.length === 0 && (
+        {!loading && uniqueCommunities.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

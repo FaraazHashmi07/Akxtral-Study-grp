@@ -599,8 +599,8 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
     }
 
     const isMember = joinedCommunities.some(community => community && community.id === communityId);
-    console.log('🔍 [STORE] Checking membership for community:', communityId, 'Result:', isMember);
-    console.log('🔍 [STORE] User\'s joined communities:', joinedCommunities.map(c => c?.id || 'undefined'));
+    // console.log('🔍 [STORE] Checking membership for community:', communityId, 'Result:', isMember);
+    // console.log('🔍 [STORE] User\'s joined communities:', joinedCommunities.map(c => c?.id || 'undefined'));
     return isMember;
   },
 
@@ -615,7 +615,7 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       const roleSnap = await getDoc(roleRef);
 
       const isMember = roleSnap.exists();
-      console.log('🔍 [STORE] Direct membership check for:', communityId, 'Result:', isMember);
+      // console.log('🔍 [STORE] Direct membership check for:', communityId, 'Result:', isMember);
       return isMember;
     } catch (error) {
       console.error('❌ [STORE] Failed direct membership check:', error);
@@ -629,7 +629,7 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
     try {
       // Always get all public communities first
       const results = await communityService.getAllPublicCommunities();
-      console.log('✅ Discovery completed:', results.length, 'public communities found');
+      // console.log('✅ Discovery completed:', results.length, 'public communities found');
       return results;
     } catch (error) {
       console.error('❌ Failed to discover communities:', error);

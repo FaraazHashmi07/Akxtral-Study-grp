@@ -263,7 +263,7 @@ export const getAllPublicCommunities = async (): Promise<Community[]> => {
 
       // Only process if visibility is 'public'
       if (data.visibility === 'public') {
-        console.log('✅ [DISCOVERY] Found public community:', data.name);
+        // console.log('✅ [DISCOVERY] Found public community:', data.name);
 
         try {
           const community: Community = {
@@ -301,11 +301,11 @@ export const getAllPublicCommunities = async (): Promise<Community[]> => {
     // Step 3: Sort by creation date (newest first)
     publicCommunities.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    console.log('🎉 [DISCOVERY] Final result:', {
-      totalInDatabase: allCommunities.length,
-      publicFound: publicCommunities.length,
-      publicCommunityNames: publicCommunities.map(c => c.name)
-    });
+    // console.log('🎉 [DISCOVERY] Final result:', {
+    //   totalInDatabase: allCommunities.length,
+    //   publicFound: publicCommunities.length,
+    //   publicCommunityNames: publicCommunities.map(c => c.name)
+    // });
 
     return publicCommunities;
 

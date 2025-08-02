@@ -10,13 +10,15 @@ interface ThreadedMessagesProps {
   communityId: string;
   isAdmin?: boolean;
   onReply?: (message: Message) => void;
+  onScrollToMessage?: (messageId: string) => void;
 }
 
 export const ThreadedMessages: React.FC<ThreadedMessagesProps> = ({
   parentMessage,
   communityId,
   isAdmin = false,
-  onReply
+  onReply,
+  onScrollToMessage
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [threadMessages, setThreadMessages] = useState<Message[]>([]);
@@ -91,6 +93,7 @@ export const ThreadedMessages: React.FC<ThreadedMessagesProps> = ({
                   communityId={communityId}
                   isAdmin={isAdmin}
                   onReply={onReply}
+                  onScrollToMessage={onScrollToMessage}
                 />
               </motion.div>
             ))}

@@ -52,7 +52,7 @@ interface ExtendedChatState extends ChatState {
   unsubscribeThreads: Record<string, () => void>; // messageId -> unsubscribe
 
   // Actions
-  loadMessages: (communityId: string, limit?: number) => Promise<void>;
+  loadMessages: (communityId: string) => Promise<void>;
   loadMoreMessages: (communityId: string) => Promise<void>;
   sendMessage: (communityId: string, content: string, replyTo?: string) => Promise<void>;
   sendResourceMessage: (communityId: string, resourceId: string, resourceName: string, resourceUrl: string, resourceType: string, uploadedBy: string, uploadedByName: string) => Promise<void>;
@@ -129,17 +129,17 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
   threadName: '',
   unsubscribeThreads: {},
 
-  // Load messages for a community
-  loadMessages: async (communityId, messageLimit = 50) => {
+  // Load latest 50 messages for a community (newest first)
+  loadMessages: async (communityId) => {
     set({ loading: true, error: null });
     try {
-      console.log('📨 [CHAT] Loading messages for community:', communityId);
+      console.log('📨 [CHAT] Loading latest 50 messages for community:', communityId);
 
       const messagesRef = collection(db, 'communities', communityId, 'messages');
       const messagesQuery = query(
         messagesRef,
-        orderBy('createdAt', 'desc'),
-        limit(messageLimit)
+        orderBy('createdAt', 'desc'), // Newest first
+        limit(50) // Load only latest 50 messages
       );
 
       const snapshot = await getDocs(messagesQuery);
@@ -152,26 +152,26 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
           editedAt: data.editedAt?.toDate(),
           pinnedAt: data.pinnedAt?.toDate()
         } as Message;
-      }).reverse(); // Reverse to show oldest first
+      }).reverse(); // Reverse to show oldest at top, newest at bottom
 
-      const { messages: currentMessages } = get();
+      const { messages: currentMessages, hasMoreMessages: currentHasMore } = get();
       set({
         messages: {
           ...currentMessages,
           [communityId]: messages
         },
         hasMoreMessages: {
-          ...get().hasMoreMessages,
-          [communityId]: snapshot.docs.length === messageLimit
+          ...currentHasMore,
+          [communityId]: snapshot.docs.length === 50 // Has more if we got exactly 50
         },
         lastMessageTimestamp: {
           ...get().lastMessageTimestamp,
-          [communityId]: messages[0]?.createdAt || new Date()
+          [communityId]: messages[messages.length - 1]?.createdAt || new Date()
         },
         loading: false
       });
 
-      console.log('✅ [CHAT] Loaded', messages.length, 'messages');
+      console.log('✅ [CHAT] Loaded', messages.length, 'messages, hasMore:', snapshot.docs.length === 50);
     } catch (error) {
       console.error('❌ [CHAT] Failed to load messages:', error);
       set({
@@ -181,26 +181,37 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
     }
   },
 
-  // Load more messages (pagination)
+  // Load older messages when scrolling up
   loadMoreMessages: async (communityId) => {
-    const { hasMoreMessages, lastMessageTimestamp, loading } = get();
+    const { messages, hasMoreMessages, loading } = get();
+    
+    if (loading || !hasMoreMessages[communityId]) {
+      return;
+    }
 
-    if (!hasMoreMessages[communityId] || loading) return;
+    const currentMessages = messages[communityId] || [];
+    if (currentMessages.length === 0) {
+      return;
+    }
 
     set({ loading: true });
     try {
-      console.log('📨 [CHAT] Loading more messages for community:', communityId);
+      console.log('📨 [CHAT] Loading older messages for community:', communityId);
+
+      // Get the oldest message timestamp for pagination
+      const oldestMessage = currentMessages[0];
+      const oldestTimestamp = Timestamp.fromDate(oldestMessage.createdAt);
 
       const messagesRef = collection(db, 'communities', communityId, 'messages');
       const messagesQuery = query(
         messagesRef,
         orderBy('createdAt', 'desc'),
-        startAfter(Timestamp.fromDate(lastMessageTimestamp[communityId])),
-        limit(25)
+        startAfter(oldestTimestamp), // Start after the oldest message we have
+        limit(50) // Load 50 more messages
       );
 
       const snapshot = await getDocs(messagesQuery);
-      const newMessages: Message[] = snapshot.docs.map(doc => {
+      const olderMessages: Message[] = snapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -209,31 +220,30 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
           editedAt: data.editedAt?.toDate(),
           pinnedAt: data.pinnedAt?.toDate()
         } as Message;
-      }).reverse();
+      }).reverse(); // Reverse to maintain chronological order
 
-      const { messages: currentMessages } = get();
-      const existingMessages = currentMessages[communityId] || [];
+      const { messages: latestMessages, hasMoreMessages: currentHasMore } = get();
+      const updatedMessages = [...olderMessages, ...latestMessages[communityId]];
 
       set({
         messages: {
-          ...currentMessages,
-          [communityId]: [...newMessages, ...existingMessages]
+          ...latestMessages,
+          [communityId]: updatedMessages
         },
         hasMoreMessages: {
-          ...get().hasMoreMessages,
-          [communityId]: snapshot.docs.length === 25
-        },
-        lastMessageTimestamp: {
-          ...get().lastMessageTimestamp,
-          [communityId]: newMessages[0]?.createdAt || lastMessageTimestamp[communityId]
+          ...currentHasMore,
+          [communityId]: snapshot.docs.length === 50 // Has more if we got exactly 50
         },
         loading: false
       });
 
-      console.log('✅ [CHAT] Loaded', newMessages.length, 'more messages');
+      console.log('✅ [CHAT] Loaded', olderMessages.length, 'older messages, hasMore:', snapshot.docs.length === 50);
     } catch (error) {
-      console.error('❌ [CHAT] Failed to load more messages:', error);
-      set({ loading: false });
+      console.error('❌ [CHAT] Failed to load older messages:', error);
+      set({
+        error: error instanceof Error ? error.message : 'Failed to load older messages',
+        loading: false
+      });
     }
   },
 
@@ -1007,8 +1017,7 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
     const messagesRef = collection(db, 'communities', communityId, 'messages');
     const messagesQuery = query(
       messagesRef,
-      orderBy('createdAt', 'desc'),
-      limit(100)
+      orderBy('createdAt', 'desc')
     );
 
     const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
@@ -1025,7 +1034,7 @@ export const useChatStore = create<ExtendedChatState>((set, get) => ({
           editedAt: data.editedAt?.toDate(),
           pinnedAt: data.pinnedAt?.toDate()
         } as Message;
-      }).reverse(); // Reverse to show oldest first
+      }); // Messages already in ascending order
 
       // 🔧 FIX DUPLICATES: Filter out optimistic messages that now exist in Firestore
       const optimisticMessages = currentCommunityMessages.filter(msg => {

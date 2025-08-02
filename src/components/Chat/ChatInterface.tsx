@@ -76,6 +76,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ communityId }) => 
     if (communityId) {
       console.log('🔄 [CHAT] Setting up chat for community:', communityId);
 
+      // Reset scroll tracking when switching communities
+      hasInitiallyScrolledRef.current = false;
+      prevMessageCountRef.current = 0;
+
       // Load initial data
       loadMessages(communityId);
       loadPinnedMessages(communityId);
@@ -91,41 +95,134 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ communityId }) => 
     }
   }, [communityId]);
 
+  // Track previous message count to detect new messages
+  const prevMessageCountRef = useRef<number>(0);
+  const hasInitiallyScrolledRef = useRef<boolean>(false);
+  
   useEffect(() => {
-    scrollToBottom();
-  }, [communityMessages]);
+    const currentMessageCount = communityMessages.length;
+    const prevMessageCount = prevMessageCountRef.current;
+    
+    // Auto-scroll to bottom on initial load when messages are first loaded
+    if (currentMessageCount > 0 && !hasInitiallyScrolledRef.current) {
+      setTimeout(() => {
+        scrollToBottom();
+        hasInitiallyScrolledRef.current = true;
+      }, 100); // Small delay to ensure DOM is updated
+    }
+    // Only scroll to bottom if:
+    // 1. New messages were added (not initial load)
+    // 2. User sent a message (optimistic update)
+    else if (currentMessageCount > prevMessageCount && prevMessageCount > 0) {
+      // Check if the last message is from current user (they sent it)
+      const lastMessage = communityMessages[communityMessages.length - 1];
+      if (lastMessage?.authorId === user?.uid) {
+        scrollToBottom();
+      } else {
+        // For other users' messages, only scroll if user is near bottom
+        const container = messagesContainerRef.current;
+        if (container) {
+          const { scrollTop, scrollHeight, clientHeight } = container;
+          const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100;
+          if (isNearBottom) {
+            scrollToBottom();
+          }
+        }
+      }
+    }
+    
+    prevMessageCountRef.current = currentMessageCount;
+  }, [communityMessages, user?.uid]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const handleScroll = async () => {
-    if (!messagesContainerRef.current || isLoadingMore || !hasMoreMessages[communityId]) return;
-
-    const { scrollTop } = messagesContainerRef.current;
-
-    if (scrollTop === 0) {
-      setIsLoadingMore(true);
-      await loadMoreMessages(communityId);
-      setIsLoadingMore(false);
+  const scrollToMessage = (messageId: string) => {
+    const messageElement = document.getElementById(`message-${messageId}`);
+    if (messageElement) {
+      messageElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // Add highlight effect
+      messageElement.classList.add('highlight-message');
+      setTimeout(() => {
+        messageElement.classList.remove('highlight-message');
+      }, 2000);
     }
   };
+
+  // Handle scroll to load older messages when scrolling to top
+  const handleScroll = async () => {
+    const container = messagesContainerRef.current;
+    if (!container || isLoadingMore || !hasMoreMessages[communityId]) {
+      return;
+    }
+
+    // Check if scrolled to top (within 100px)
+    if (container.scrollTop <= 100) {
+      setIsLoadingMore(true);
+      
+      // Store current scroll position to maintain it after loading
+      const previousScrollHeight = container.scrollHeight;
+      const previousScrollTop = container.scrollTop;
+      
+      try {
+        await loadMoreMessages(communityId);
+        
+        // Restore scroll position after loading older messages
+        setTimeout(() => {
+          const newScrollHeight = container.scrollHeight;
+          const heightDifference = newScrollHeight - previousScrollHeight;
+          container.scrollTop = previousScrollTop + heightDifference;
+        }, 100);
+      } catch (error) {
+        console.error('Failed to load more messages:', error);
+      } finally {
+        setIsLoadingMore(false);
+      }
+    }
+  };
+
+  // Add scroll listener
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', handleScroll);
+      return () => container.removeEventListener('scroll', handleScroll);
+    }
+  }, [communityId, isLoadingMore, hasMoreMessages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim()) return;
 
+    // Store message content before clearing
+    const messageContent = messageInput.trim();
+    const replyToId = replyingTo?.id;
+
+    // Clear input and reply state immediately
+    setMessageInput('');
+    setReplyingTo(null);
+
     // 🚀 PERFORMANCE: Send message (optimistic update handles UI immediately)
     try {
       if (isQuestionMode) {
-        sendQuestionMessage(communityId, messageInput, replyingTo?.id); // Don't await - let optimistic update handle UI
+        sendQuestionMessage(communityId, messageContent, replyToId); // Don't await - let optimistic update handle UI
       } else {
-        sendMessage(communityId, messageInput, replyingTo?.id); // Don't await - let optimistic update handle UI
+        sendMessage(communityId, messageContent, replyToId); // Don't await - let optimistic update handle UI
       }
 
+      // Scroll to bottom after sending
+      setTimeout(() => scrollToBottom(), 100);
       inputRef.current?.focus();
     } catch (error) {
       console.error('Failed to send message:', error);
+      // Restore message content on error
+      setMessageInput(messageContent);
+      if (replyToId) {
+        const originalMessage = communityMessages.find(msg => msg.id === replyToId);
+        if (originalMessage) setReplyingTo(originalMessage);
+      }
     }
   };
 
@@ -290,15 +387,14 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ communityId }) => 
       {/* Messages Container */}
       <div
         ref={messagesContainerRef}
-        onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-4 space-y-4"
       >
-        {/* Load more indicator */}
+        {/* Load More Indicator */}
         {isLoadingMore && (
-          <div className="text-center py-2">
-            <div className="inline-flex items-center space-x-2 text-sm text-gray-500 dark:text-gray-400">
-              <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
-              <span>Loading more messages...</span>
+          <div className="flex justify-center py-4">
+            <div className="flex items-center space-x-2 text-gray-500 dark:text-gray-400">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              <span className="text-sm">Loading older messages...</span>
             </div>
           </div>
         )}
@@ -306,13 +402,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ communityId }) => 
         {/* Messages */}
         <AnimatePresence>
           {communityMessages.map((message) => (
-            <MessageItem
-              key={message.id}
-              message={message}
-              communityId={communityId}
-              isAdmin={isAdmin}
-              onReply={handleReply}
-            />
+            <div key={message.id} id={`message-${message.id}`}>
+              <MessageItem
+                message={message}
+                communityId={communityId}
+                isAdmin={isAdmin}
+                onReply={handleReply}
+                onScrollToMessage={scrollToMessage}
+              />
+            </div>
           ))}
         </AnimatePresence>
 

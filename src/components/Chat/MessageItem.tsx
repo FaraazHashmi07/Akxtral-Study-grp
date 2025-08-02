@@ -27,6 +27,7 @@ interface MessageItemProps {
   communityId: string;
   isAdmin?: boolean;
   onReply?: (message: Message) => void;
+  onScrollToMessage?: (messageId: string) => void;
 }
 
 const quickReactions = ['👍', '❤️', '😂', '😮', '🤔', '👏'];
@@ -35,7 +36,8 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
   message,
   communityId,
   isAdmin = false,
-  onReply
+  onReply,
+  onScrollToMessage
 }) => {
   const { user } = useAuthStore();
   const { toggleReaction, togglePinMessage, deleteMessage, openThread } = useChatStore();
@@ -176,8 +178,9 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
           replyToSenderName={message.replyToSenderName}
           replyToMessageSnippet={message.replyToMessageSnippet}
           onClick={() => {
-            // TODO: Scroll to original message (optional feature)
-            console.log('Clicked reply preview for message:', message.replyToMessageId);
+            if (message.replyToMessageId && onScrollToMessage) {
+              onScrollToMessage(message.replyToMessageId);
+            }
           }}
         />
       )}
@@ -196,7 +199,7 @@ export const MessageItem: React.FC<MessageItemProps> = React.memo(({
         <div className="flex-1 min-w-0">
           {/* Header */}
           <div className="flex items-center space-x-2 mb-1">
-            <span className="font-medium text-gray-900 dark:text-white">
+            <span className="text-sm font-medium text-gray-900 dark:text-white">
               {message.authorName}
             </span>
             <span className="text-xs text-gray-500 dark:text-gray-400">

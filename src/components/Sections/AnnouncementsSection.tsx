@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Megaphone, Pin, Plus, Eye } from 'lucide-react';
 import { useCommunityStore } from '../../store/communityStore';
@@ -12,7 +12,6 @@ export const AnnouncementsSection: React.FC = () => {
   const { activeCommunity } = useCommunityStore();
   const { 
     announcements, 
-    loading, 
     error, 
     loadAnnouncements,
     getUnreadCount,
@@ -21,6 +20,8 @@ export const AnnouncementsSection: React.FC = () => {
   } = useAnnouncementStore();
   const { user } = useAuthStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
+  const loadingRef = useRef<Set<string>>(new Set());
 
   // SECURITY FIX: Only show announcements if user is authenticated and has active community
   const communityAnnouncements = (activeCommunity?.id && user) ? announcements[activeCommunity.id] || [] : [];
@@ -37,44 +38,34 @@ export const AnnouncementsSection: React.FC = () => {
     }
   };
 
-  // Debug admin status
-  useEffect(() => {
-    if (user && activeCommunity) {
-      const basicAuthResult = isCommunityAdmin(user, activeCommunity.id);
-      const authResult = isCommunityAdmin(user, activeCommunity.id);
-      const isCreator = user.uid === activeCommunity.createdBy;
-      const hasRole = user.communityRoles?.[activeCommunity.id]?.role === 'community_admin';
 
-      console.log('🔐 [ANNOUNCEMENTS] Admin Status Debug:', {
-        userId: user.uid,
-        communityId: activeCommunity.id,
-        communityCreatedBy: activeCommunity.createdBy,
-        basicAuthResult,
-        authResult,
-        isCreator,
-        hasRole,
-        finalIsAdmin: isAdmin,
-        userRoles: user.communityRoles
-      });
-    }
-  }, [user, activeCommunity, isAdmin]);
 
   // Load announcements when component mounts or community changes
   useEffect(() => {
     if (activeCommunity?.id && user) {
-      // CRITICAL FIX: Add delay to ensure membership validation completes first
-      const loadTimer = setTimeout(() => {
-        // Double-check user is still authenticated and community is still active
-        if (user && activeCommunity?.id) {
-          // FIXED: Use getState() to avoid function dependency that causes infinite re-renders
-          const { loadAnnouncements: loadAnnouncementsFunc } = useAnnouncementStore.getState();
-          loadAnnouncementsFunc(activeCommunity.id);
-        }
-      }, 100); // Small delay to allow membership validation to complete
-
-      return () => clearTimeout(loadTimer);
+      // Check if already loading for this community to prevent duplicates
+      if (loadingRef.current.has(activeCommunity.id)) {
+        console.log('📢 [ANNOUNCEMENTS] Already loading for community:', activeCommunity.id, '- skipping duplicate call');
+        return;
+      }
+      
+      console.log('📢 [ANNOUNCEMENTS] Loading announcements for community:', activeCommunity.id);
+      
+      // Set local loading state
+      setLocalLoading(true);
+      
+      // Mark as loading
+      loadingRef.current.add(activeCommunity.id);
+      
+      // Use getState() to avoid function dependency that causes infinite re-renders
+      const { loadAnnouncements: loadAnnouncementsFunc } = useAnnouncementStore.getState();
+      loadAnnouncementsFunc(activeCommunity.id).finally(() => {
+        // Clear loading states when done
+        loadingRef.current.delete(activeCommunity.id);
+        setLocalLoading(false);
+      });
     }
-  }, [activeCommunity?.id, user]); // FIXED: Removed loadAnnouncements from dependencies
+  }, [activeCommunity?.id, user]);
 
   // SECURITY CHECK: Don't render if no active community or user not authenticated
   if (!activeCommunity || !user) {
@@ -140,14 +131,19 @@ export const AnnouncementsSection: React.FC = () => {
           </div>
 
           {/* Loading State */}
-          {loading && (
-            <div className="flex items-center justify-center py-12">
+          {localLoading && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center py-12"
+            >
               <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-            </div>
+            </motion.div>
           )}
 
           {/* Announcements List */}
-          {!loading && (
+          {!localLoading && (
             <div className="space-y-6">
               <AnimatePresence>
                 {communityAnnouncements.map((announcement) => (

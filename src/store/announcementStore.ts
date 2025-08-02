@@ -176,11 +176,18 @@ export const useAnnouncementStore = create<AnnouncementState>((set, get) => ({
         }
       });
 
-      // Then subscribe to real-time updates
-      get().subscribeToAnnouncements(communityId);
+      // Check if subscriptions already exist to prevent duplicates
+      const { unsubscribeAnnouncements, unsubscribeReadStatus } = get();
       
-      // Subscribe to read status
-      get().subscribeToReadStatus(communityId);
+      // Only subscribe to real-time updates if not already subscribed
+      if (!unsubscribeAnnouncements[communityId]) {
+        get().subscribeToAnnouncements(communityId);
+      }
+      
+      // Only subscribe to read status if not already subscribed
+      if (!unsubscribeReadStatus[communityId]) {
+        get().subscribeToReadStatus(communityId);
+      }
 
       set({ loading: false });
     } catch (error) {

@@ -159,6 +159,14 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           // Don't update error state - user is still authenticated
         }
       } else {
+        // CRITICAL FIX: Check if we're in the middle of a signout process
+        const isSigningOut = sessionStorage.getItem('signing-out') === 'true';
+        
+        if (isSigningOut) {
+          console.log('🔧 [AUTH] Ignoring auth state change during signout process');
+          return; // Don't update state during signout to prevent race conditions
+        }
+        
         console.log('❌ No Firebase user - user signed out');
         set({
           user: null,
