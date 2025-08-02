@@ -336,6 +336,7 @@ export interface Resource {
   description?: string;
   type: 'file' | 'link' | 'video';
   url: string;
+  storagePath?: string; // Firebase Storage path for file deletion
   thumbnailUrl?: string;
   fileSize?: number;
   mimeType?: string;

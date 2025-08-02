@@ -7,8 +7,9 @@ import {
   CommunityFilter
 } from '../types';
 import * as communityService from '../services/communityService';
+import { UploadProgress } from '../services/storageService';
 import { useAuthStore } from './authStore';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
 interface CommunityState {
@@ -26,12 +27,17 @@ interface CommunityState {
   lastLoadedUserId: string | null;
   lastLoadTime: number;
 
+  // Real-time subscriptions
+  subscriptions: Record<string, Unsubscribe>;
+  isSubscribed: boolean;
+
   // Actions
   loadCommunities: () => Promise<void>;
   loadJoinedCommunities: (forceRefresh?: boolean) => Promise<void>;
   setActiveCommunity: (community: Community | null) => void;
   createCommunity: (data: Partial<Community>) => Promise<Community>;
   updateCommunity: (id: string, updates: Partial<Community>) => Promise<void>;
+  updateCommunityWithIcon: (id: string, updates: Partial<Community>, iconFile?: File, onProgress?: (progress: UploadProgress) => void) => Promise<void>;
   deleteCommunity: (id: string) => Promise<void>;
   
   // Membership
@@ -55,6 +61,13 @@ interface CommunityState {
   // Analytics
   loadCommunityAnalytics: (communityId: string) => Promise<void>;
 
+  // Real-time subscriptions
+  subscribeToUserCommunities: () => void;
+  subscribeToCommunityMembers: (communityId: string) => void;
+  subscribeToCommunityUpdates: (communityId: string) => void;
+  unsubscribeFromCommunity: (communityId: string) => void;
+  unsubscribeAll: () => void;
+
   // Cleanup
   reset: () => void;
 }
@@ -71,6 +84,8 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
   error: null,
   lastLoadedUserId: null,
   lastLoadTime: 0,
+  subscriptions: {},
+  isSubscribed: false,
 
   // Load all public communities for discovery
   loadCommunities: async () => {
@@ -94,7 +109,7 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
 
   // Load communities the user has joined with caching
   loadJoinedCommunities: async (forceRefresh = false) => {
-    const { lastLoadedUserId, lastLoadTime, loading } = get();
+    const { lastLoadedUserId, lastLoadTime, loading, isSubscribed } = get();
     const authState = useAuthStore.getState();
     const user = authState.user;
 
@@ -120,12 +135,14 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       return;
     }
 
-    // Cache check: Skip if recently loaded for same user (within 30 seconds)
+    // Cache check: Skip if recently loaded for same user (within 30 seconds) and have real-time subscription
     const now = Date.now();
     const cacheValidTime = 30 * 1000; // 30 seconds
     if (!forceRefresh &&
         lastLoadedUserId === user.uid &&
-        (now - lastLoadTime) < cacheValidTime) {
+        (now - lastLoadTime) < cacheValidTime &&
+        isSubscribed) {
+      console.log('⚡ [STORE] Using real-time subscription (loaded', Math.round((now - lastLoadTime) / 1000), 'seconds ago)');
       return;
     }
 
@@ -142,6 +159,12 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
           lastLoadedUserId: user.uid,
           lastLoadTime: now
         });
+
+        // Set up real-time subscription for future updates
+        if (!isSubscribed) {
+          console.log('🔔 [STORE] Setting up real-time subscription for user communities');
+          get().subscribeToUserCommunities();
+        }
       } else {
         console.log('⚠️ [STORE] User changed during load, discarding results');
         set({
@@ -165,11 +188,22 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
 
   // Set the currently active community
   setActiveCommunity: (community) => {
+    const { activeCommunity } = get();
+    
+    // Unsubscribe from previous community if different
+    if (activeCommunity && activeCommunity.id !== community?.id) {
+      get().unsubscribeFromCommunity(activeCommunity.id);
+    }
+    
     set({ activeCommunity: community });
     if (community) {
       // Load community-specific data when a community is selected
       get().loadCommunityMembers(community.id);
       get().loadCommunityAnalytics(community.id);
+      
+      // Set up real-time subscriptions for the active community
+      get().subscribeToCommunityMembers(community.id);
+      get().subscribeToCommunityUpdates(community.id);
     }
   },
 
@@ -234,6 +268,38 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
 
       // Call the community service to update in Firestore
       await communityService.updateCommunity(id, updates, user.uid);
+      
+      const { communities, joinedCommunities, activeCommunity } = get();
+      
+      const updateCommunityInArray = (communities: Community[]) =>
+        communities.map(c => c.id === id ? { ...c, ...updates } : c);
+      
+      set({
+        communities: updateCommunityInArray(communities),
+        joinedCommunities: updateCommunityInArray(joinedCommunities),
+        activeCommunity: activeCommunity?.id === id ? { ...activeCommunity, ...updates } : activeCommunity,
+        loading: false
+      });
+    } catch (error) {
+      set({ 
+        error: error instanceof Error ? error.message : 'Failed to update community',
+        loading: false 
+      });
+      throw error;
+    }
+  },
+
+  // Update community details with icon upload
+  updateCommunityWithIcon: async (id, updates, iconFile, onProgress) => {
+    set({ loading: true, error: null });
+    try {
+      const user = useAuthStore.getState().user;
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Call the community service to update with icon in Firestore
+      await communityService.updateCommunityWithIcon(id, updates, user.uid, iconFile, onProgress);
       
       const { communities, joinedCommunities, activeCommunity } = get();
       
@@ -600,9 +666,134 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
     }
   },
 
+  // Real-time subscription to user's communities
+   subscribeToUserCommunities: () => {
+     const user = useAuthStore.getState().user;
+     if (!user) return;
+ 
+     console.log('🔄 [COMMUNITY] Setting up real-time subscription for user communities');
+     
+     const unsubscribe = communityService.subscribeToUserCommunities(
+       user.uid,
+       (communities) => {
+         console.log('📡 [COMMUNITY] Real-time update received:', communities.length, 'communities');
+         set({ 
+           joinedCommunities: communities,
+           lastLoadedUserId: user.uid,
+           lastLoadTime: Date.now()
+         });
+       }
+     );
+ 
+     const { subscriptions } = get();
+     set({ 
+       subscriptions: { ...subscriptions, userCommunities: unsubscribe },
+       isSubscribed: true
+     });
+   },
+
+  // Subscribe to community members updates
+   subscribeToCommunityMembers: (communityId: string) => {
+     console.log('🔄 [COMMUNITY] Setting up real-time subscription for community members:', communityId);
+     
+     const unsubscribe = communityService.subscribeToCommunityMembers(
+       communityId,
+       (members) => {
+         console.log('📡 [COMMUNITY] Real-time members update received:', members.length, 'members');
+         const { communityMembers } = get();
+         set({ 
+           communityMembers: {
+             ...communityMembers,
+             [communityId]: members
+           }
+         });
+       },
+       (error) => {
+         console.error('❌ [COMMUNITY] Members subscription error:', error);
+       }
+     );
+ 
+     const { subscriptions } = get();
+     set({ 
+       subscriptions: { ...subscriptions, [`members_${communityId}`]: unsubscribe }
+     });
+   },
+ 
+   // Subscribe to community document updates
+   subscribeToCommunityUpdates: (communityId: string) => {
+     console.log('🔄 [COMMUNITY] Setting up real-time subscription for community updates:', communityId);
+     
+     const unsubscribe = communityService.subscribeToCommunityUpdates(
+       communityId,
+       (community) => {
+         console.log('📡 [COMMUNITY] Real-time community update received:', community.name);
+         const { communities, joinedCommunities, activeCommunity } = get();
+         
+         const updateCommunityInArray = (communities: Community[]) =>
+           communities.map(c => c.id === communityId ? community : c);
+         
+         set({
+           communities: updateCommunityInArray(communities),
+           joinedCommunities: updateCommunityInArray(joinedCommunities),
+           activeCommunity: activeCommunity?.id === communityId ? community : activeCommunity
+         });
+       },
+       (error) => {
+         console.error('❌ [COMMUNITY] Community updates subscription error:', error);
+       }
+     );
+ 
+     const { subscriptions } = get();
+     set({ 
+       subscriptions: { ...subscriptions, [`community_${communityId}`]: unsubscribe }
+     });
+   },
+
+  // Unsubscribe from a specific community
+  unsubscribeFromCommunity: (communityId: string) => {
+    const { subscriptions } = get();
+    const membersSub = subscriptions[`members_${communityId}`];
+    const communitySub = subscriptions[`community_${communityId}`];
+    
+    if (membersSub) {
+      membersSub();
+      delete subscriptions[`members_${communityId}`];
+    }
+    
+    if (communitySub) {
+      communitySub();
+      delete subscriptions[`community_${communityId}`];
+    }
+    
+    set({ subscriptions: { ...subscriptions } });
+    console.log('🔇 [COMMUNITY] Unsubscribed from community:', communityId);
+  },
+
+  // Unsubscribe from all real-time updates
+  unsubscribeAll: () => {
+    const { subscriptions } = get();
+    console.log('🔇 [COMMUNITY] Unsubscribing from all real-time updates...');
+    
+    Object.values(subscriptions).forEach(unsubscribe => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    });
+    
+    set({ 
+      subscriptions: {},
+      isSubscribed: false
+    });
+    console.log('✅ [COMMUNITY] All subscriptions cleared');
+  },
+
   // CRITICAL FIX: Reset store to prevent data leakage between users
   reset: () => {
     console.log('🧹 [COMMUNITY] Resetting community store...');
+    
+    // First unsubscribe from all real-time updates
+    get().unsubscribeAll();
+    
     set({
       communities: [],
       joinedCommunities: [],
@@ -613,7 +804,9 @@ export const useCommunityStore = create<CommunityState>((set, get) => ({
       loading: false,
       error: null,
       lastLoadedUserId: null,
-      lastLoadTime: 0
+      lastLoadTime: 0,
+      subscriptions: {},
+      isSubscribed: false
     });
     console.log('✅ [COMMUNITY] Store reset complete');
   }

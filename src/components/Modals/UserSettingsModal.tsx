@@ -399,17 +399,7 @@ export const UserSettingsModal: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-2">
-                Account Security
-              </h4>
-              <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
-                Keep your account secure by using a strong password and enabling two-factor authentication.
-              </p>
-              <button className="text-sm text-yellow-800 dark:text-yellow-200 hover:underline">
-                Change Password
-              </button>
-            </div>
+
 
             {/* Danger Zone */}
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">

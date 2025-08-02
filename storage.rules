@@ -70,12 +70,13 @@ service firebase.storage {
     }
 
     // Community icon (single file per community)
-    match /communities/{communityId}/icon/{fileName} {
+    match /communities/{communityId}/{fileName} {
       allow read: if true; // Community icons are public
       allow write: if isAuthenticated() &&
-                      isCommunityAdmin() &&
+                      fileName.matches('icon\\.(png|jpg|jpeg|svg|gif)') &&
                       isValidCommunityIconFile();
       allow delete: if isAuthenticated() &&
+                       fileName.matches('icon\\.(png|jpg|jpeg|svg|gif)') &&
                        (isCommunityAdmin() || isSuperAdmin());
     }
     

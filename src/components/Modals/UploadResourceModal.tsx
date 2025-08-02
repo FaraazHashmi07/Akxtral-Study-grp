@@ -28,14 +28,7 @@ export const UploadResourceModal: React.FC<UploadResourceModalProps> = ({ commun
   // We'll do more detailed permission checking in the upload process
   const allowUpload = isAuthenticated && uploadsAllowed;
 
-  console.log('📤 Upload modal permissions:', {
-    user: user?.uid,
-    communityId,
-    isAuthenticated,
-    canUpload,
-    uploadsAllowed,
-    allowUpload
-  });
+  // Removed console.log to prevent excessive logging
   
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -154,11 +147,18 @@ export const UploadResourceModal: React.FC<UploadResourceModalProps> = ({ commun
 
     setIsUploading(true);
     try {
-      const uploadedResource = await uploadResource(communityId, selectedFile, {
-        name: formData.name.trim(),
-        description: formData.description.trim(),
-        tags: formData.tags
-      });
+      const uploadedResource = await uploadResource(
+        communityId, 
+        selectedFile, 
+        {
+          name: formData.name.trim(),
+          description: formData.description.trim(),
+          tags: formData.tags
+        },
+        (progress) => {
+          setUploadProgress(progress.percentage);
+        }
+      );
 
       showToast({
         type: 'success',

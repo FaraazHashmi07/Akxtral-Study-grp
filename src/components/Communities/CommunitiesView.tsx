@@ -15,17 +15,15 @@ import {
   Clock,
   Hash
 } from 'lucide-react';
-import { useAppStore } from '../../store/appStore';
+import { useCommunityStore } from '../../store/communityStore';
 import { Community, SubCommunity } from '../../types';
 
 export const CommunitiesView: React.FC = () => {
   const { 
     communities, 
     joinCommunity, 
-    leaveCommunity, 
-    joinSubCommunity, 
-    leaveSubCommunity 
-  } = useAppStore();
+    leaveCommunity 
+  } = useCommunityStore();
   
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -68,12 +66,13 @@ export const CommunitiesView: React.FC = () => {
     leaveCommunity(communityId);
   };
 
+  // Note: Sub-community functionality would need to be implemented in communityStore
   const handleJoinSubCommunity = (subCommunityId: string) => {
-    joinSubCommunity(subCommunityId);
+    console.log('Join subcommunity:', subCommunityId);
   };
 
   const handleLeaveSubCommunity = (subCommunityId: string) => {
-    leaveSubCommunity(subCommunityId);
+    console.log('Leave subcommunity:', subCommunityId);
   };
 
   return (

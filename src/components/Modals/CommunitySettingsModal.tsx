@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { BaseModal } from '../UI/ModalContainer';
 import { Community } from '../../types';
 import { useUIStore } from '../../store/uiStore';
 import { useCommunityStore } from '../../store/communityStore';
 import { Upload, X, Save, Camera } from 'lucide-react';
 import { toast } from 'sonner';
+import { UploadProgress } from '../../services/storageService';
 
 interface CommunitySettingsModalProps {
   community: Community;
@@ -22,7 +23,7 @@ const categories = [
 
 export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ community }) => {
   const { closeModal } = useUIStore();
-  const { updateCommunity } = useCommunityStore();
+  const { updateCommunity, updateCommunityWithIcon } = useCommunityStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [formData, setFormData] = useState({
@@ -37,6 +38,26 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
   const [iconPreview, setIconPreview] = useState<string>(community?.iconUrl || '');
   const [tagInput, setTagInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+
+  // Sync form data with real-time community updates
+  useEffect(() => {
+    if (community) {
+      console.log('🔄 [SETTINGS] Syncing form data with real-time community updates:', community.name);
+      setFormData({
+        name: community.name || '',
+        description: community.description || '',
+        category: community.category || 'study',
+        requiresApproval: community.requiresApproval || false,
+        tags: community.tags || []
+      });
+      
+      // Update icon preview if community icon changed
+      if (community.iconUrl && community.iconUrl !== iconPreview && !iconFile) {
+        setIconPreview(community.iconUrl);
+      }
+    }
+  }, [community, iconPreview, iconFile]);
 
   const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -95,6 +116,7 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
     }
     
     setIsLoading(true);
+    setUploadProgress(null);
     
     try {
       const updateData = {
@@ -103,22 +125,32 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
         description: formData.description.trim()
       };
       
-      // If there's a new icon file, we would upload it here
-      // For now, we'll just update the other fields
+      // Use updateCommunityWithIcon if there's an icon file, otherwise use regular update
       if (iconFile) {
-        // In a real implementation, you would upload the file to storage
-        // and get back a URL to store in the community data
-        toast.success('Icon upload functionality would be implemented here');
+        console.log('📤 Uploading community icon and updating settings...');
+        await updateCommunityWithIcon(
+          community.id, 
+          updateData, 
+          iconFile, 
+          (progress: UploadProgress) => {
+            setUploadProgress(progress);
+            console.log(`📊 Upload progress: ${progress.percentage}%`);
+          }
+        );
+        toast.success('Community settings and icon updated successfully!');
+      } else {
+        console.log('📝 Updating community settings without icon...');
+        await updateCommunity(community.id, updateData);
+        toast.success('Community settings updated successfully!');
       }
       
-      await updateCommunity(community.id, updateData);
-      toast.success('Community settings updated successfully!');
       closeModal();
     } catch (error) {
       console.error('Error updating community:', error);
       toast.error('Failed to update community settings');
     } finally {
       setIsLoading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -303,8 +335,30 @@ export const CommunitySettingsModal: React.FC<CommunitySettingsModalProps> = ({ 
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center space-x-2"
           >
             <Save size={16} />
-            <span>{isLoading ? 'Saving...' : 'Save Changes'}</span>
+            <span>
+              {isLoading ? (
+                uploadProgress ? 
+                  `Uploading... ${Math.round(uploadProgress.percentage)}%` : 
+                  'Saving...'
+              ) : 'Save Changes'}
+            </span>
           </button>
+          
+          {/* Upload Progress Bar */}
+          {uploadProgress && (
+            <div className="w-full mt-2">
+              <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                <span>Uploading icon...</span>
+                <span>{Math.round(uploadProgress.percentage)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress.percentage}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
         </div>
       </form>
     </BaseModal>

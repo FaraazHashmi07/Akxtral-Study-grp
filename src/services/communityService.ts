@@ -13,7 +13,9 @@ import {
   orderBy,
   limit,
   serverTimestamp,
-  Timestamp
+  Timestamp,
+  onSnapshot,
+  Unsubscribe
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Community, CommunityMember, JoinRequest, CommunityFilter } from '../types';
@@ -1218,6 +1220,55 @@ export const updateCommunity = async (
   }
 };
 
+/**
+ * Updates a community with optional icon upload
+ */
+export const updateCommunityWithIcon = async (
+  communityId: string,
+  updates: Partial<Community>,
+  adminUserId: string,
+  iconFile?: File,
+  onProgress?: (progress: UploadProgress) => void
+): Promise<void> => {
+  console.log('🔄 [SERVICE] Updating community with icon:', {
+    communityId,
+    updates,
+    iconFile: iconFile ? iconFile.name : 'none'
+  });
+
+  try {
+    let iconUrl: string | undefined;
+
+    // Step 1: Upload icon if provided
+    if (iconFile) {
+      console.log('📤 [SERVICE] Uploading community icon...');
+      try {
+        const uploadResult = await uploadCommunityIcon(communityId, iconFile, onProgress);
+        iconUrl = uploadResult.downloadURL;
+        console.log('✅ [SERVICE] Icon uploaded successfully:', iconUrl);
+      } catch (iconError) {
+        console.error('❌ [SERVICE] Icon upload failed:', iconError);
+        throw new Error(`Icon upload failed: ${iconError instanceof Error ? iconError.message : 'Unknown error'}`);
+      }
+    }
+
+    // Step 2: Prepare update data with icon URL if uploaded
+    const updateData = {
+      ...updates,
+      ...(iconUrl && { iconUrl })
+    };
+
+    // Step 3: Update community document
+    await updateCommunity(communityId, updateData, adminUserId);
+
+    console.log('✅ [SERVICE] Community updated with icon successfully');
+
+  } catch (error: any) {
+    console.error('❌ [SERVICE] Community update with icon failed:', error);
+    throw new Error(`Failed to update community: ${error.message}`);
+  }
+};
+
 // Delete a community and all associated data
 export const deleteCommunity = async (communityId: string, adminUserId: string): Promise<void> => {
   try {
@@ -1389,3 +1440,224 @@ export const getPendingJoinRequestsCount = async (communityId: string): Promise<
     return 0;
   }
 };
+
+// Real-time subscription functions
+
+// Subscribe to a specific community's changes
+export const subscribeToCommunity = (
+  communityId: string,
+  callback: (community: Community | null) => void
+): Unsubscribe => {
+  console.log('🔔 [SERVICE] Subscribing to community changes:', communityId);
+  
+  const communityRef = doc(communitiesRef, communityId);
+  
+  return onSnapshot(communityRef, (doc) => {
+    if (doc.exists()) {
+      const data = doc.data();
+      const community: Community = {
+        id: doc.id,
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        visibility: data.visibility,
+        requiresApproval: data.requiresApproval,
+        tags: data.tags || [],
+        memberCount: data.memberCount,
+        createdBy: data.createdBy,
+        admins: data.admins || [data.createdBy],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        lastActivity: data.lastActivity?.toDate() || new Date(),
+        settings: data.settings,
+        bannerUrl: data.bannerUrl,
+        iconUrl: data.iconUrl
+      };
+      callback(community);
+    } else {
+      callback(null);
+    }
+  }, (error) => {
+    console.error('❌ [SERVICE] Error in community subscription:', error);
+    callback(null);
+  });
+};
+
+// Subscribe to user's joined communities
+export const subscribeToUserCommunities = (
+  userId: string,
+  callback: (communities: Community[]) => void
+): Unsubscribe => {
+  console.log('🔔 [SERVICE] Subscribing to user communities:', userId);
+  
+  // First, subscribe to user's memberships
+  const membershipQuery = query(membersRef, where('uid', '==', userId));
+  
+  return onSnapshot(membershipQuery, async (membershipSnapshot) => {
+    try {
+      const communityIds = membershipSnapshot.docs.map(doc => doc.data().communityId);
+      
+      if (communityIds.length === 0) {
+        callback([]);
+        return;
+      }
+      
+      // Get communities in batches (Firestore 'in' query limit is 10)
+      const communities: Community[] = [];
+      const chunkSize = 10;
+      
+      for (let i = 0; i < communityIds.length; i += chunkSize) {
+        const chunk = communityIds.slice(i, i + chunkSize);
+        const communityQuery = query(
+          communitiesRef,
+          where('__name__', 'in', chunk)
+        );
+        
+        const communitySnapshot = await getDocs(communityQuery);
+        
+        communitySnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          communities.push({
+            id: doc.id,
+            name: data.name,
+            description: data.description,
+            category: data.category,
+            visibility: data.visibility,
+            requiresApproval: data.requiresApproval,
+            tags: data.tags || [],
+            memberCount: data.memberCount,
+            createdBy: data.createdBy,
+            admins: data.admins || [data.createdBy],
+            createdAt: data.createdAt?.toDate() || new Date(),
+            lastActivity: data.lastActivity?.toDate() || new Date(),
+            settings: data.settings,
+            bannerUrl: data.bannerUrl,
+            iconUrl: data.iconUrl
+          });
+        });
+      }
+      
+      callback(communities);
+    } catch (error) {
+      console.error('❌ [SERVICE] Error in user communities subscription:', error);
+      callback([]);
+    }
+  }, (error) => {
+    console.error('❌ [SERVICE] Error in membership subscription:', error);
+    callback([]);
+  });
+};
+
+// Subscribe to all public communities for discovery
+export const subscribeToPublicCommunities = (
+  callback: (communities: Community[]) => void
+): Unsubscribe => {
+  console.log('🔔 [SERVICE] Subscribing to public communities');
+  
+  const publicQuery = query(
+    communitiesRef,
+    where('visibility', '==', 'public'),
+    orderBy('lastActivity', 'desc')
+  );
+  
+  return onSnapshot(publicQuery, (snapshot) => {
+    const communities: Community[] = [];
+    
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      communities.push({
+        id: doc.id,
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        visibility: data.visibility,
+        requiresApproval: data.requiresApproval,
+        tags: data.tags || [],
+        memberCount: data.memberCount,
+        createdBy: data.createdBy,
+        admins: data.admins || [data.createdBy],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        lastActivity: data.lastActivity?.toDate() || new Date(),
+        settings: data.settings,
+        bannerUrl: data.bannerUrl,
+        iconUrl: data.iconUrl
+      });
+    });
+    
+    callback(communities);
+  }, (error) => {
+     console.error('❌ [SERVICE] Error in public communities subscription:', error);
+     callback([]);
+   });
+ };
+
+// Subscribe to community members
+export const subscribeToCommunityMembers = (
+  communityId: string,
+  callback: (members: CommunityMember[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe => {
+  console.log('🔔 [SERVICE] Subscribing to community members:', communityId);
+  
+  const membersQuery = query(membersRef, where('communityId', '==', communityId));
+  
+  return onSnapshot(membersQuery, (snapshot) => {
+    const members: CommunityMember[] = [];
+    
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      members.push({
+        uid: data.uid,
+        communityId: data.communityId,
+        role: data.role,
+        joinedAt: data.joinedAt?.toDate() || new Date(),
+        lastActive: data.lastActive?.toDate() || new Date(),
+        email: data.email || '',
+        displayName: data.displayName || '',
+        photoURL: data.photoURL || ''
+      });
+    });
+    
+    callback(members);
+  }, (error) => {
+    console.error('❌ [SERVICE] Error in community members subscription:', error);
+    if (onError) onError(error);
+  });
+};
+
+// Subscribe to community document updates
+export const subscribeToCommunityUpdates = (
+  communityId: string,
+  callback: (community: Community) => void,
+  onError?: (error: Error) => void
+): Unsubscribe => {
+  console.log('🔔 [SERVICE] Subscribing to community document updates:', communityId);
+  
+  const communityRef = doc(communitiesRef, communityId);
+  
+  return onSnapshot(communityRef, (doc) => {
+    if (doc.exists()) {
+      const data = doc.data();
+      const community: Community = {
+        id: doc.id,
+        name: data.name,
+        description: data.description,
+        category: data.category,
+        visibility: data.visibility,
+        requiresApproval: data.requiresApproval,
+        tags: data.tags || [],
+        memberCount: data.memberCount,
+        createdBy: data.createdBy,
+        admins: data.admins || [data.createdBy],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        lastActivity: data.lastActivity?.toDate() || new Date(),
+        settings: data.settings,
+        bannerUrl: data.bannerUrl,
+        iconUrl: data.iconUrl
+      };
+      callback(community);
+    }
+  }, (error) => {
+    console.error('❌ [SERVICE] Error in community updates subscription:', error);
+    if (onError) onError(error);
+  });
+ };

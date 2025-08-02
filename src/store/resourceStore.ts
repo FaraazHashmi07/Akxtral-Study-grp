@@ -78,7 +78,7 @@ interface ResourceState {
   
   // Actions
   loadResources: (communityId: string) => Promise<void>;
-  uploadResource: (communityId: string, file: File, metadata: Partial<Resource>) => Promise<Resource>;
+  uploadResource: (communityId: string, file: File, metadata: Partial<Resource>, onProgress?: (progress: UploadProgress) => void) => Promise<Resource>;
   createLinkResource: (communityId: string, data: Partial<Resource>) => Promise<Resource>;
   updateResource: (resourceId: string, updates: Partial<Resource>) => Promise<void>;
   deleteResource: (resourceId: string) => Promise<void>;
@@ -197,7 +197,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
   },
 
   // Upload a file resource
-  uploadResource: async (communityId, file, metadata) => {
+  uploadResource: async (communityId, file, metadata, onProgress) => {
     set({ loading: true, error: null });
 
     if (!auth.currentUser) {
@@ -214,8 +214,10 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
         communityId,
         file,
         (progress: UploadProgress) => {
-          // Progress tracking could be added to store state if needed
-          console.log(`Upload progress: ${progress.percentage}%`);
+          // Call the progress callback if provided
+          if (onProgress) {
+            onProgress(progress);
+          }
         }
       );
 
@@ -226,6 +228,7 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
         description: metadata.description || '',
         type: 'file' as const,
         url: uploadResult.downloadURL,
+        storagePath: uploadResult.fullPath, // Store the full storage path for deletion
         fileSize: file.size,
         mimeType: file.type,
         tags: metadata.tags || [],
@@ -380,12 +383,22 @@ export const useResourceStore = create<ResourceState>((set, get) => ({
       // Delete file from Storage if it's a file resource
       if (resourceData.type === 'file' && resourceData.url) {
         try {
-          // Extract storage path from URL or use a stored path
-          // For now, we'll construct the path based on our upload structure
-          const communityId = resourceData.communityId;
-          const fileName = resourceData.url.split('/').pop()?.split('?')[0]; // Extract filename from URL
-          if (fileName) {
-            const storagePath = `communities/${communityId}/resources/${resourceId}/${fileName}`;
+          let storagePath: string | undefined;
+          
+          // Use stored storage path if available (new resources)
+          if (resourceData.storagePath) {
+            storagePath = resourceData.storagePath;
+          } else {
+            // Fallback for old resources without storagePath
+            // Try to extract from URL and decode properly
+            const urlParts = resourceData.url.split('/o/');
+            if (urlParts.length > 1) {
+              const encodedPath = urlParts[1].split('?')[0];
+              storagePath = decodeURIComponent(encodedPath);
+            }
+          }
+          
+          if (storagePath) {
             await deleteFileFromStorage(storagePath);
           }
         } catch (storageError) {
